@@ -34,9 +34,8 @@ OK_RED_DARK = "#A30029"
 OK_RED_LIGHT = "#FF1F5A"
 
 
-# ================== پوشه داده (اصلاح‌شده) ==================
+# ================== پوشه داده ==================
 def _resolve_data_dir():
-    """پوشه‌ای که قابل نوشتن است را پیدا می‌کند."""
     candidates = []
     env_dir = os.environ.get("DATA_DIR")
     if env_dir:
@@ -68,7 +67,6 @@ TARGET_FILE = DATA_DIR / "فایل تارگت.xlsx"
 TARGET_SHEET = "روند و تارگت"
 HISTORY_DB = DATA_DIR / "history.db"
 
-# اگر فایل‌ها در DATA_DIR نبودند، از پوشه جاری استفاده کن (روی Streamlit Cloud فایل‌ها در ریشه ریپو هستند)
 if not RAAKED_FILE.exists():
     RAAKED_FILE = Path("اقلام راکد 60  45   دیتا (1).xlsx")
 if not SALES_FILE.exists():
@@ -108,7 +106,20 @@ CHART_GRADIENT = ["#3b0a1a", "#7a0e2e", "#a30029", "#E6003E", "#FF1F5A"]
 CHART_PIE_GREEN, CHART_PIE_YELLOW, CHART_PIE_RED = "#10b981", "#f59e0b", "#E6003E"
 CHART_NEUTRAL = "#6b7280"
 
-# ================== استایل (موبایل-محور) ==================
+
+# ================== HTML Helper (کلید حل مشکل) ==================
+def _html(s):
+    """حذف تورفتگی هر خط تا Markdown آن را code block نبیند."""
+    return "\n".join(line.lstrip() for line in str(s).strip().splitlines())
+
+
+def st_md(s, **kwargs):
+    """Markdown HTML امن با حذف خودکار تورفتگی."""
+    kwargs.setdefault("unsafe_allow_html", True)
+    return st.markdown(_html(s), **kwargs)
+
+
+# ================== استایل ==================
 st.markdown(f"""
 <style>
     :root {{
@@ -231,13 +242,6 @@ st.markdown(f"""
     }}
     .mcard-row span {{ color: {TXT2}; flex-shrink: 0; }}
     .mcard-row b {{ color: {TXT}; font-weight: 600; text-align: left; word-break: break-word; }}
-    .big-kpi {{
-        background: linear-gradient(135deg, {OK_RED_DARK}10, {OK_RED}20);
-        border: 1px solid {OK_RED}40;
-        border-radius: 12px; padding: 12px; margin-bottom: 8px; text-align: center;
-    }}
-    .big-kpi-label {{ font-size: 0.72rem; color: {TXT2}; margin-bottom: 4px; }}
-    .big-kpi-value {{ font-size: 1rem; font-weight: bold; color: {OK_RED_LIGHT}; line-height: 1.2; word-break: break-word; }}
     .stDownloadButton button {{ font-size: 0.78rem !important; padding: 6px 12px !important; }}
     div[data-testid="stSelectbox"] {{ margin-bottom: 4px; }}
     div[data-testid="stSlider"] {{ margin-bottom: 4px; }}
@@ -678,7 +682,7 @@ def get_logo_html(size=38):
 
 
 def render_header(subtitle=""):
-    st.markdown(f"""
+    st_md(f"""
     <div class="ok-header">
         <div>
             <p class="ok-header-title">داشبورد مدیریت کالای راکد</p>
@@ -686,12 +690,11 @@ def render_header(subtitle=""):
         </div>
         <div class="ok-logo-wrap">{get_logo_html(size=32 if is_mobile else 45)}</div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
 
 def back_link():
-    st.markdown('<a class="back-link" href="?page=home" target="_self">⬅️ بازگشت</a>',
-                unsafe_allow_html=True)
+    st_md('<a class="back-link" href="?page=home" target="_self">⬅️ بازگشت</a>')
 
 
 def metric_row(items):
@@ -779,13 +782,13 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
         elif "کالا" in title_col:
             icon = "📦"
 
-        st.markdown(f"""
+        st_md(f"""
         <div class="mcard">
             <div class="mcard-title">{icon} {title}</div>
             {sub_html}
             {rows_html}
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     if len(df) > max_rows:
         st.caption(f"🔸 نمایش {max_rows} ردیف اول از {len(df):,} — برای دیدن همه، CSV را دانلود کن.")
@@ -1055,7 +1058,7 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
         for _, r in full.iterrows():
             prio = r["اولویت"]
             color = OK_RED if "فوری" in prio else ("#f59e0b" if "پیگیری" in prio else CHART_PIE_GREEN)
-            st.markdown(f"""
+            st_md(f"""
             <div class="mcard" style="border-right-color: {color};">
                 <div class="mcard-title">{prio} {r[NM]}</div>
                 <div class="mcard-sup">🏪 {r[BR]}</div>
@@ -1064,7 +1067,7 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
                 <div class="mcard-row"><span>ارزش راکد</span><b>{_fmt_cell(r[VAL])} ریال</b></div>
                 <div class="mcard-row"><span>فروش</span><b>{_fmt_cell(r[S_QTY])} عدد</b></div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
         csv_bytes = x.to_csv(index=False).encode("utf-8-sig")
     else:
         limit = st.slider("تعداد ردیف نمایش", 10, 100, 15, 5, key=f"ac_lim_{key}")
@@ -1200,13 +1203,13 @@ def render_cash_and_abc(df60, sales_df=None):
               "C — کم‌ارزش": CHART_PIE_GREEN}
 
     for _, r in summary.iterrows():
-        st.markdown(f"""
+        st_md(f"""
         <div class="mcard" style="border-right-color:{colors.get(r["دسته"], "#666")}">
             <div class="mcard-title">{r["دسته"]}</div>
             <div class="mcard-row"><span>تعداد</span><b>{r["تعداد"]:,} قلم</b></div>
             <div class="mcard-row"><span>ارزش</span><b>{money(r["ارزش"], short=True)}</b></div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     fig = px.bar(summary, x="دسته", y="ارزش", color="دسته", color_discrete_map=colors,
                  title="توزیع ارزش راکد بر اساس ABC")
@@ -1356,22 +1359,22 @@ def render_comparison():
     if is_mobile:
         st.markdown("**🔴 بیشترین افزایش راکد**")
         for _, r in gainers.iterrows():
-            st.markdown(f"""
+            st_md(f"""
             <div class="mcard" style="border-right-color: {OK_RED};">
                 <div class="mcard-title">🏪 {r['branch']}</div>
                 <div class="mcard-row"><span>افزایش</span><b>{money(r['تغییر'], short=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
         st.markdown("**🟢 بیشترین کاهش راکد**")
         for _, r in losers.iterrows():
-            st.markdown(f"""
+            st_md(f"""
             <div class="mcard" style="border-right-color: {CHART_PIE_GREEN};">
                 <div class="mcard-title">🏪 {r['branch']}</div>
                 <div class="mcard-row"><span>کاهش</span><b>{money(r['تغییر'], short=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
     else:
         c1, c2 = st.columns(2)
         with c1:
@@ -1638,14 +1641,14 @@ def render_ranking(t_df, key_suffix=""):
         st.markdown(f"**{title}**")
         if is_mobile:
             for _, r in df.iterrows():
-                st.markdown(f"""
+                st_md(f"""
                 <div class="mcard">
                     <div class="mcard-title">رتبه {r['رتبه']} — {r[branch_col]}</div>
                     <div class="mcard-sup">👤 {r.get(sup_col, '—')}</div>
                     <div class="mcard-row"><span>تحقق</span><b>{r[ach_col]:.1f}%</b></div>
                     <div class="mcard-row"><span>وضعیت</span><b>{r['وضعیت']}</b></div>
                 </div>
-                """, unsafe_allow_html=True)
+                """)
         else:
             st.dataframe(df, use_container_width=True, hide_index=True,
                          column_config=target_column_config(df))
@@ -1672,13 +1675,13 @@ def render_ranking(t_df, key_suffix=""):
 
         if is_mobile:
             for _, r in sup_rank.head(20).iterrows():
-                st.markdown(f"""
+                st_md(f"""
                 <div class="mcard">
                     <div class="mcard-title">رتبه {r['رتبه']} — {r[sup_col]}</div>
                     <div class="mcard-row"><span>شعب</span><b>{int(r['تعداد شعبه'])}</b></div>
                     <div class="mcard-row"><span>میانگین تحقق</span><b>{r['میانگین تحقق']:.1f}%</b></div>
                 </div>
-                """, unsafe_allow_html=True)
+                """)
         else:
             st.dataframe(sup_rank, use_container_width=True, hide_index=True)
 
@@ -1719,8 +1722,7 @@ def render_weekly_target(t_df):
     status = ("🟢 روی تارگت" if achieved >= target
               else ("🟡 قابل جبران" if forecast >= target else "🔴 عقب از برنامه"))
     cls = "ok" if achieved >= target else "warn"
-    st.markdown(f'<div class="alert-card {cls}"><b>وضعیت:</b> {status}</div>',
-                unsafe_allow_html=True)
+    st_md(f'<div class="alert-card {cls}"><b>وضعیت:</b> {status}</div>')
 
 
 def render_target(t_df, key_suffix=""):
@@ -1763,8 +1765,7 @@ df_target = load_target(_mtime(TARGET_FILE))
 if data_error and page != "upload":
     render_header("خطا در بارگذاری داده")
     st.error(f"فایل راکد خوانده نشد: {data_error}")
-    st.markdown('<a class="back-link" href="?page=upload" target="_self">📤 آپلود</a>',
-                unsafe_allow_html=True)
+    st_md('<a class="back-link" href="?page=upload" target="_self">📤 آپلود</a>')
     st.stop()
 
 
@@ -1773,8 +1774,8 @@ def show_last_update_badge():
     if last and last[0]:
         date, kind, rows = last
         label = "راکد" if kind == "raaked" else "فروش"
-        st.markdown(f'<div class="alert-card ok">📅 <b>آخرین آپدیت:</b> {date} | '
-                    f'{label} | {(rows or 0):,} ردیف</div>', unsafe_allow_html=True)
+        st_md(f'<div class="alert-card ok">📅 <b>آخرین آپدیت:</b> {date} | '
+              f'{label} | {(rows or 0):,} ردیف</div>')
 
 
 def card_html(target, icon, title, sub, light):
@@ -1807,15 +1808,14 @@ if page == "home":
     if is_mobile:
         for i in range(0, len(CARDS), 2):
             for col, c in zip(st.columns(2), CARDS[i:i + 2]):
-                col.markdown(card_html(*c), unsafe_allow_html=True)
+                col.markdown(_html(card_html(*c)), unsafe_allow_html=True)
     else:
         for i in range(0, len(CARDS), 3):
             row = "".join(card_html(*c) for c in CARDS[i:i + 3])
-            st.markdown(f'<div style="display:flex; gap:12px; align-items:stretch; '
-                        f'margin-bottom:12px;">{row}</div>', unsafe_allow_html=True)
+            st.markdown(_html(f'<div style="display:flex; gap:12px; align-items:stretch; '
+                              f'margin-bottom:12px;">{row}</div>'), unsafe_allow_html=True)
 
-    st.markdown('<div class="footer-text">ساخته شده توسط <b>شاهین باقری</b></div>',
-                unsafe_allow_html=True)
+    st_md('<div class="footer-text">ساخته شده توسط <b>شاهین باقری</b></div>')
 
 # ================== دیستریکت ==================
 elif page == "district":
