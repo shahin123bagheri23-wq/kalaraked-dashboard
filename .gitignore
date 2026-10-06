@@ -1,0 +1,9 @@
+# فایل‌های حساس و موقت
+history.db
+backups/
+check.py
+~$*.xlsx
+*.tmp
+.streamlit/secrets.toml
+__pycache__/
+*.pyc

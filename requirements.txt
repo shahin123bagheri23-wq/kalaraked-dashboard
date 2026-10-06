@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+openpyxl
+plotly
+streamlit-js-eval
+jdatetime
