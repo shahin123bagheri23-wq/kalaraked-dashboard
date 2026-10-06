@@ -107,14 +107,12 @@ CHART_PIE_GREEN, CHART_PIE_YELLOW, CHART_PIE_RED = "#10b981", "#f59e0b", "#E6003
 CHART_NEUTRAL = "#6b7280"
 
 
-# ================== HTML Helper (کلید حل مشکل) ==================
+# ================== HTML Helper ==================
 def _html(s):
-    """حذف تورفتگی هر خط تا Markdown آن را code block نبیند."""
     return "\n".join(line.lstrip() for line in str(s).strip().splitlines())
 
 
 def st_md(s, **kwargs):
-    """Markdown HTML امن با حذف خودکار تورفتگی."""
     kwargs.setdefault("unsafe_allow_html", True)
     return st.markdown(_html(s), **kwargs)
 
@@ -225,10 +223,21 @@ st.markdown(f"""
     }}
     .alert-card.warn {{ border-right-color: #f59e0b; }}
     .alert-card.ok {{ border-right-color: #10b981; }}
+
+    /* ============ کارت موبایل ============ */
     .mcard {{
         background: {CARD_BG}; border-right: 4px solid {OK_RED};
         border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
         color: {TXT}; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }}
+    .mcard-badge {{
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        color: white;
+        font-size: 0.72rem;
+        font-weight: bold;
+        margin-bottom: 6px;
     }}
     .mcard-title {{
         font-size: 0.9rem; font-weight: bold;
@@ -242,6 +251,7 @@ st.markdown(f"""
     }}
     .mcard-row span {{ color: {TXT2}; flex-shrink: 0; }}
     .mcard-row b {{ color: {TXT}; font-weight: 600; text-align: left; word-break: break-word; }}
+
     .stDownloadButton button {{ font-size: 0.78rem !important; padding: 6px 12px !important; }}
     div[data-testid="stSelectbox"] {{ margin-bottom: 4px; }}
     div[data-testid="stSlider"] {{ margin-bottom: 4px; }}
@@ -746,8 +756,15 @@ def _fmt_cell(v, col_name=""):
     return str(v)
 
 
+def _badge_html(text, bg_color, icon=""):
+    """ساخت بَج رنگی جدا برای اولویت."""
+    label = f"{icon} {text}".strip()
+    return f'<div class="mcard-badge" style="background:{bg_color};">{label}</div>'
+
+
 def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
-                        priority_cols=None):
+                        priority_cols=None, badge_col=None):
+    """نمایش کارتی در موبایل. اگر badge_col داده شود، به‌عنوان بَج رنگی بالای کارت نمایش داده می‌شود."""
     if df.empty:
         st.info("ردیفی برای نمایش وجود ندارد.")
         return
@@ -755,7 +772,7 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
     if priority_cols is None:
         priority_cols = [c for c in df.columns if c not in (BR, SUP)]
 
-    available_cols = [c for c in priority_cols if c in df.columns]
+    available_cols = [c for c in priority_cols if c in df.columns and c != badge_col]
     display = df.head(max_rows)
 
     for _, row in display.iterrows():
@@ -765,6 +782,17 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
         if not title:
             title = sub
             sub = ""
+
+        # بَج اولویت (اگر ستونش داده شده باشد)
+        badge_html = ""
+        if badge_col and badge_col in df.columns:
+            badge_val = str(row.get(badge_col, ""))
+            if "فوری" in badge_val:
+                badge_html = _badge_html("فوری", OK_RED, "🔴")
+            elif "پیگیری" in badge_val:
+                badge_html = _badge_html("پیگیری", "#f59e0b", "🟡")
+            elif "عادی" in badge_val:
+                badge_html = _badge_html("عادی", CHART_PIE_GREEN, "🟢")
 
         rows_html = ""
         for c in available_cols:
@@ -777,13 +805,14 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
         sub_html = f'<div class="mcard-sup">👤 {sub}</div>' if sub else ""
 
         icon = "🏪"
-        if "سوپروایزر" in title_col or "سرپرست" in title_col:
-            icon = "👤"
-        elif "کالا" in title_col:
+        if "کالا" in title_col:
             icon = "📦"
+        elif "سوپروایزر" in title_col or "سرپرست" in title_col:
+            icon = "👤"
 
         st_md(f"""
         <div class="mcard">
+            {badge_html}
             <div class="mcard-title">{icon} {title}</div>
             {sub_html}
             {rows_html}
@@ -795,7 +824,7 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
 
 
 def show_table(df, key, hide_supervisor=False, search=True, placeholder="جستجو...",
-               priority_cols=None, title_col=NM):
+               priority_cols=None, title_col=NM, badge_col=None):
     view = df.copy()
     if hide_supervisor and SUP in view.columns:
         view = view.drop(columns=[SUP])
@@ -810,7 +839,7 @@ def show_table(df, key, hide_supervisor=False, search=True, placeholder="جست�
     if is_mobile:
         render_mobile_cards(view, max_rows=50, title_col=title_col,
                             sub_col=SUP if SUP in view.columns else None,
-                            priority_cols=priority_cols)
+                            priority_cols=priority_cols, badge_col=badge_col)
     else:
         st.dataframe(view, use_container_width=True, hide_index=True,
                      column_config=column_config(view))
@@ -962,6 +991,8 @@ def export_to_excel(dfs: dict, filename="report.xlsx"):
             df.to_excel(writer, sheet_name=safe, index=False)
     buf.seek(0)
     return buf.getvalue()
+
+
 # ================== KPI ها ==================
 def render_kpis(f60, f45):
     metric_row([
@@ -1047,7 +1078,7 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
     x["_p"] = 2
     x.loc[no_sale, "_p"] = 1
     x.loc[no_sale & (x[VAL] >= thr), "_p"] = 0
-    x["اولویت"] = x["_p"].map({0: "🔴 فوری", 1: "🟡 پیگیری", 2: "🟢 عادی"})
+    x["اولویت"] = x["_p"].map({0: "فوری", 1: "پیگیری", 2: "عادی"})
     x = x.sort_values(["_p", VAL], ascending=[True, False])
 
     st.caption("🔴 فوری = بدون فروش و جزو ۲۵٪ بالای ارزش | 🟡 پیگیری = بدون فروش | 🟢 عادی = فروش رفته")
@@ -1057,10 +1088,20 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
         full = x[["اولویت", BR, NM, BC, QTY, VAL, S_QTY, S_AMT]].head(limit)
         for _, r in full.iterrows():
             prio = r["اولویت"]
-            color = OK_RED if "فوری" in prio else ("#f59e0b" if "پیگیری" in prio else CHART_PIE_GREEN)
+            if prio == "فوری":
+                badge_bg = OK_RED
+                badge_icon = "🔴"
+            elif prio == "پیگیری":
+                badge_bg = "#f59e0b"
+                badge_icon = "🟡"
+            else:
+                badge_bg = CHART_PIE_GREEN
+                badge_icon = "🟢"
+
             st_md(f"""
-            <div class="mcard" style="border-right-color: {color};">
-                <div class="mcard-title">{prio} {r[NM]}</div>
+            <div class="mcard" style="border-right-color: {badge_bg};">
+                <div class="mcard-badge" style="background:{badge_bg};">{badge_icon} {prio}</div>
+                <div class="mcard-title">📦 {r[NM]}</div>
                 <div class="mcard-sup">🏪 {r[BR]}</div>
                 <div class="mcard-row"><span>بارکد</span><b>{r[BC]}</b></div>
                 <div class="mcard-row"><span>موجودی</span><b>{_fmt_cell(r[QTY])}</b></div>
@@ -1203,9 +1244,10 @@ def render_cash_and_abc(df60, sales_df=None):
               "C — کم‌ارزش": CHART_PIE_GREEN}
 
     for _, r in summary.iterrows():
+        c = colors.get(r["دسته"], "#666")
         st_md(f"""
-        <div class="mcard" style="border-right-color:{colors.get(r["دسته"], "#666")}">
-            <div class="mcard-title">{r["دسته"]}</div>
+        <div class="mcard" style="border-right-color:{c};">
+            <div class="mcard-badge" style="background:{c};">{r["دسته"]}</div>
             <div class="mcard-row"><span>تعداد</span><b>{r["تعداد"]:,} قلم</b></div>
             <div class="mcard-row"><span>ارزش</span><b>{money(r["ارزش"], short=True)}</b></div>
         </div>
@@ -1361,6 +1403,7 @@ def render_comparison():
         for _, r in gainers.iterrows():
             st_md(f"""
             <div class="mcard" style="border-right-color: {OK_RED};">
+                <div class="mcard-badge" style="background:{OK_RED};">🔴 افزایش</div>
                 <div class="mcard-title">🏪 {r['branch']}</div>
                 <div class="mcard-row"><span>افزایش</span><b>{money(r['تغییر'], short=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
@@ -1370,6 +1413,7 @@ def render_comparison():
         for _, r in losers.iterrows():
             st_md(f"""
             <div class="mcard" style="border-right-color: {CHART_PIE_GREEN};">
+                <div class="mcard-badge" style="background:{CHART_PIE_GREEN};">🟢 کاهش</div>
                 <div class="mcard-title">🏪 {r['branch']}</div>
                 <div class="mcard-row"><span>کاهش</span><b>{money(r['تغییر'], short=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
@@ -1623,13 +1667,15 @@ def render_ranking(t_df, key_suffix=""):
         st.info("برای رتبه‌بندی، نام شعبه و درصد تحقق لازم است.")
         return
 
-    def status_emoji(v):
-        if v >= ACH_OK: return "🟢 موفق"
-        if v >= ACH_WARN: return "🟡 در حال پیشرفت"
-        return "🔴 بحرانی"
+    def status_badge(v):
+        if v >= ACH_OK:
+            return ("موفق", CHART_PIE_GREEN, "🟢")
+        if v >= ACH_WARN:
+            return ("در حال پیشرفت", "#f59e0b", "🟡")
+        return ("بحرانی", OK_RED, "🔴")
 
     rank_df = t_df[[c for c in [branch_col, sup_col, raked_col, ach_col, change_col] if c]].copy()
-    rank_df["وضعیت"] = rank_df[ach_col].apply(status_emoji)
+    rank_df["وضعیت"] = rank_df[ach_col].apply(lambda v: status_badge(v)[0])
     rank_df = rank_df.sort_values(ach_col, ascending=False).reset_index(drop=True)
     rank_df.insert(0, "رتبه", range(1, len(rank_df) + 1))
     n = len(rank_df)
@@ -1641,9 +1687,11 @@ def render_ranking(t_df, key_suffix=""):
         st.markdown(f"**{title}**")
         if is_mobile:
             for _, r in df.iterrows():
+                _, bg, icon = status_badge(r[ach_col])
                 st_md(f"""
                 <div class="mcard">
-                    <div class="mcard-title">رتبه {r['رتبه']} — {r[branch_col]}</div>
+                    <div class="mcard-badge" style="background:{bg};">{icon} رتبه {r['رتبه']}</div>
+                    <div class="mcard-title">🏪 {r[branch_col]}</div>
                     <div class="mcard-sup">👤 {r.get(sup_col, '—')}</div>
                     <div class="mcard-row"><span>تحقق</span><b>{r[ach_col]:.1f}%</b></div>
                     <div class="mcard-row"><span>وضعیت</span><b>{r['وضعیت']}</b></div>
@@ -1675,9 +1723,11 @@ def render_ranking(t_df, key_suffix=""):
 
         if is_mobile:
             for _, r in sup_rank.head(20).iterrows():
+                _, bg, icon = status_badge(r["میانگین تحقق"])
                 st_md(f"""
                 <div class="mcard">
-                    <div class="mcard-title">رتبه {r['رتبه']} — {r[sup_col]}</div>
+                    <div class="mcard-badge" style="background:{bg};">{icon} رتبه {r['رتبه']}</div>
+                    <div class="mcard-title">👤 {r[sup_col]}</div>
                     <div class="mcard-row"><span>شعب</span><b>{int(r['تعداد شعبه'])}</b></div>
                     <div class="mcard-row"><span>میانگین تحقق</span><b>{r['میانگین تحقق']:.1f}%</b></div>
                 </div>
