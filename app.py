@@ -24,7 +24,6 @@ st.set_page_config(
 )
 
 # ================== تشخیص دستگاه ==================
-# اگر نتوانست تشخیص دهد، پیش‌فرض موبایل در نظر می‌گیریم (چون ۹۹٪ موبایل هستند)
 screen_width = streamlit_js_eval(js_expressions="window.innerWidth", key="WIDTH")
 is_mobile = (screen_width or 400) < 768
 is_desktop = not is_mobile
@@ -34,10 +33,34 @@ OK_RED = "#E6003E"
 OK_RED_DARK = "#A30029"
 OK_RED_LIGHT = "#FF1F5A"
 
-# ================== تنظیمات ==================
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else "."))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-BACKUP_DIR = DATA_DIR / "backups"
+
+# ================== پوشه داده (اصلاح‌شده) ==================
+def _resolve_data_dir():
+    """پوشه‌ای که قابل نوشتن است را پیدا می‌کند."""
+    candidates = []
+    env_dir = os.environ.get("DATA_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates += [Path("/tmp"), Path.home() / ".kalaraked", Path(".")]
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            test = c / ".write_test"
+            test.write_text("ok")
+            test.unlink()
+            return c
+        except Exception:
+            continue
+    return Path("/tmp")
+
+
+DATA_DIR = _resolve_data_dir()
+
+try:
+    BACKUP_DIR = DATA_DIR / "backups"
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    BACKUP_DIR = DATA_DIR
 
 RAAKED_FILE = DATA_DIR / "اقلام راکد 60  45   دیتا (1).xlsx"
 SALES_FILE = DATA_DIR / "گزارش فروش راکد.xlsx"
@@ -45,7 +68,7 @@ TARGET_FILE = DATA_DIR / "فایل تارگت.xlsx"
 TARGET_SHEET = "روند و تارگت"
 HISTORY_DB = DATA_DIR / "history.db"
 
-# اگر فایل‌ها در DATA_DIR نبودند، از پوشه جاری استفاده کن
+# اگر فایل‌ها در DATA_DIR نبودند، از پوشه جاری استفاده کن (روی Streamlit Cloud فایل‌ها در ریشه ریپو هستند)
 if not RAAKED_FILE.exists():
     RAAKED_FILE = Path("اقلام راکد 60  45   دیتا (1).xlsx")
 if not SALES_FILE.exists():
@@ -108,7 +131,7 @@ st.markdown(f"""
     input, textarea, select {{
         background-color: {INPUT_BG} !important;
         color: {TXT} !important;
-        font-size: 16px !important; /* جلوگیری از zoom در iOS */
+        font-size: 16px !important;
     }}
     div[data-baseweb="select"] > div {{
         background-color: {INPUT_BG} !important;
@@ -118,8 +141,6 @@ st.markdown(f"""
         background-color: {BG2} !important;
         color: {TXT} !important;
     }}
-
-    /* ============ هدر ============ */
     .ok-header {{
         background: linear-gradient(135deg, {OK_RED_DARK} 0%, {OK_RED} 55%, {OK_RED_LIGHT} 100%);
         padding: 14px 16px; border-radius: 14px;
@@ -135,8 +156,6 @@ st.markdown(f"""
         box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         flex-shrink: 0;
     }}
-
-    /* ============ کارت‌های صفحه ورودی ============ */
     a.card-link {{ text-decoration: none !important; display: block; margin-bottom: 12px; }}
     a.card-link:hover {{ text-decoration: none !important; }}
     .home-card {{
@@ -146,9 +165,7 @@ st.markdown(f"""
         transition: transform 0.2s; cursor: pointer;
         min-height: 130px; border: 2px solid transparent;
     }}
-    a.card-link:active .home-card {{
-        transform: scale(0.98);
-    }}
+    a.card-link:active .home-card {{ transform: scale(0.98); }}
     .home-card.light {{
         background: {LIGHT_CARD};
         color: {LIGHT_CARD_TXT} !important;
@@ -159,43 +176,27 @@ st.markdown(f"""
     .home-card h2 {{ color: white !important; margin: 8px 0 4px 0; font-size: 0.95rem; line-height: 1.3; }}
     .home-card p {{ color: #ffe0e8; font-size: 0.72rem; margin: 0; line-height: 1.3; }}
     .home-card .icon {{ font-size: 2rem; }}
-
-    /* ============ دکمه بازگشت ============ */
     a.back-link {{
         display: inline-block; padding: 6px 14px;
         background: {OK_RED}; color: white !important;
         border-radius: 8px; text-decoration: none !important;
         font-weight: bold; font-size: 0.82rem; margin-bottom: 10px;
     }}
-
-    /* ============ KPI ============ */
     div[data-testid="stMetric"] {{
-        background: {CARD_BG}; padding: 10px;
-        border-radius: 10px;
-        margin-bottom: 6px;
-        border-right: 4px solid {OK_RED};
+        background: {CARD_BG}; padding: 10px; border-radius: 10px;
+        margin-bottom: 6px; border-right: 4px solid {OK_RED};
         box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }}
-    div[data-testid="stMetric"] label {{
-        color: {TXT2} !important;
-        font-size: 0.72rem !important;
-    }}
-    div[data-testid="stMetricValue"] {{
-        color: {OK_RED_LIGHT} !important;
-        font-size: 1rem !important;
-        line-height: 1.2;
-    }}
-
+    div[data-testid="stMetric"] label {{ color: {TXT2} !important; font-size: 0.72rem !important; }}
+    div[data-testid="stMetricValue"] {{ color: {OK_RED_LIGHT} !important; font-size: 1rem !important; line-height: 1.2; }}
     h1 {{ font-size: 1.1rem !important; }}
     h2 {{ font-size: 1rem !important; }}
     h3 {{ font-size: 0.92rem !important; }}
-
     .footer-text {{
         text-align: center; color: {TXT2}; font-size: 0.72rem;
         padding: 20px 0 6px 0; border-top: 2px solid {OK_RED}; margin-top: 20px;
     }}
     .footer-text b {{ color: {OK_RED_LIGHT}; }}
-
     button[data-baseweb="tab"] {{
         font-size: 0.82rem !important;
         padding-left: 10px !important; padding-right: 10px !important;
@@ -204,93 +205,42 @@ st.markdown(f"""
         color: {OK_RED_LIGHT} !important;
         border-bottom-color: {OK_RED} !important;
     }}
-
-    div[data-testid="stSlider"] div[role="slider"] {{
-        background-color: {OK_RED} !important;
-    }}
-
-    /* ============ کارت هشدار ============ */
+    div[data-testid="stSlider"] div[role="slider"] {{ background-color: {OK_RED} !important; }}
     .alert-card {{
         background: {CARD_BG}; padding: 12px 14px;
         border-radius: 10px; border-right: 4px solid {OK_RED};
         margin-bottom: 8px; color: {TXT};
-        font-size: 0.82rem;
-        line-height: 1.4;
+        font-size: 0.82rem; line-height: 1.4;
     }}
     .alert-card.warn {{ border-right-color: #f59e0b; }}
     .alert-card.ok {{ border-right-color: #10b981; }}
-
-    /* ============ کارت موبایل (جایگزین جدول) ============ */
     .mcard {{
-        background: {CARD_BG};
-        border-right: 4px solid {OK_RED};
-        border-radius: 12px;
-        padding: 12px 14px;
-        margin-bottom: 10px;
-        color: {TXT};
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        background: {CARD_BG}; border-right: 4px solid {OK_RED};
+        border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+        color: {TXT}; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
     }}
     .mcard-title {{
-        font-size: 0.9rem;
-        font-weight: bold;
-        color: {OK_RED_LIGHT};
-        margin-bottom: 6px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid {TXT2}30;
-        line-height: 1.3;
+        font-size: 0.9rem; font-weight: bold;
+        color: {OK_RED_LIGHT}; margin-bottom: 6px;
+        padding-bottom: 6px; border-bottom: 1px solid {TXT2}30; line-height: 1.3;
     }}
-    .mcard-sup {{
-        font-size: 0.72rem;
-        color: {TXT2};
-        margin-bottom: 8px;
-    }}
+    .mcard-sup {{ font-size: 0.72rem; color: {TXT2}; margin-bottom: 8px; }}
     .mcard-row {{
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 3px 0;
-        font-size: 0.78rem;
-        gap: 10px;
+        display: flex; justify-content: space-between;
+        align-items: center; padding: 3px 0; font-size: 0.78rem; gap: 10px;
     }}
     .mcard-row span {{ color: {TXT2}; flex-shrink: 0; }}
     .mcard-row b {{ color: {TXT}; font-weight: 600; text-align: left; word-break: break-word; }}
-
-    /* ============ کارت KPI مدیریتی بزرگ ============ */
     .big-kpi {{
         background: linear-gradient(135deg, {OK_RED_DARK}10, {OK_RED}20);
         border: 1px solid {OK_RED}40;
-        border-radius: 12px;
-        padding: 12px;
-        margin-bottom: 8px;
-        text-align: center;
+        border-radius: 12px; padding: 12px; margin-bottom: 8px; text-align: center;
     }}
-    .big-kpi-label {{
-        font-size: 0.72rem;
-        color: {TXT2};
-        margin-bottom: 4px;
-    }}
-    .big-kpi-value {{
-        font-size: 1rem;
-        font-weight: bold;
-        color: {OK_RED_LIGHT};
-        line-height: 1.2;
-        word-break: break-word;
-    }}
-
-    /* ============ دکمه دانلود کوچک‌تر در موبایل ============ */
-    .stDownloadButton button {{
-        font-size: 0.78rem !important;
-        padding: 6px 12px !important;
-    }}
-
-    /* ============ فشرده‌سازی selectbox و slider ============ */
-    div[data-testid="stSelectbox"] {{
-        margin-bottom: 4px;
-    }}
-    div[data-testid="stSlider"] {{
-        margin-bottom: 4px;
-    }}
-
+    .big-kpi-label {{ font-size: 0.72rem; color: {TXT2}; margin-bottom: 4px; }}
+    .big-kpi-value {{ font-size: 1rem; font-weight: bold; color: {OK_RED_LIGHT}; line-height: 1.2; word-break: break-word; }}
+    .stDownloadButton button {{ font-size: 0.78rem !important; padding: 6px 12px !important; }}
+    div[data-testid="stSelectbox"] {{ margin-bottom: 4px; }}
+    div[data-testid="stSlider"] {{ margin-bottom: 4px; }}
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header[data-testid="stHeader"] {{ display: none; }}
@@ -366,7 +316,6 @@ def remove_totals(df, branch_col=BR):
 
 
 def remove_invalid_rows(df):
-    """حذف ردیف‌هایی که نام شعبه در واقع بارکد است یا داده کاملاً خالی دارند."""
     if BR not in df.columns:
         return df
     name = df[BR].astype(str).str.strip()
@@ -392,7 +341,6 @@ def smart_int(s):
 
 
 def money(v, short=False):
-    """اگر short=True باشد، خلاصه‌سازی می‌کند (مثلاً ۹۱.۸ میلیارد)."""
     v = float(v or 0)
     if not short:
         return f"{v:,.0f} ریال"
@@ -642,7 +590,7 @@ def get_history_comparison(date1, date2, kind="60"):
 init_db()
 
 
-# ================== فایل‌ها: بک‌آپ و نوشتن امن ==================
+# ================== فایل‌ها ==================
 def _atomic_write(path, data):
     tmp = Path(str(path) + ".tmp")
     tmp.write_bytes(data)
@@ -713,7 +661,7 @@ def process_sales_upload(data, date_str, note):
     return rows, data_quality_report(pd.DataFrame(), pd.DataFrame(), s)
 
 
-# ================== UI کمکی ==================
+# ================== UI ==================
 def get_logo_html(size=38):
     logo_path = Path("logo.png")
     if logo_path.exists():
@@ -747,9 +695,7 @@ def back_link():
 
 
 def metric_row(items):
-    """items: لیست (برچسب، مقدار، {kwargs اختیاری}). در موبایل ۱ به ۱، در دسکتاپ همه در یک ردیف."""
     if is_mobile:
-        # در موبایل ۲ تا در هر ردیف برای KPIهای کوچک
         per_row = 2
     else:
         per_row = max(len(items), 1)
@@ -757,17 +703,6 @@ def metric_row(items):
         chunk = items[i:i + per_row]
         cols = st.columns(len(chunk))
         for col, it in zip(cols, chunk):
-            col.metric(it[0], it[1], **(it[2] if len(it) > 2 else {}))
-
-
-def metric_row_single(items):
-    """KPIهای مهم که در موبایل تمام-عرض باشند."""
-    if is_mobile:
-        for it in items:
-            st.metric(it[0], it[1], **(it[2] if len(it) > 2 else {}))
-    else:
-        cols = st.columns(len(items))
-        for col, it in zip(cols, items):
             col.metric(it[0], it[1], **(it[2] if len(it) > 2 else {}))
 
 
@@ -792,9 +727,7 @@ def plotly_style(fig, title_size=14, show_legend_bg=False, mobile_height=None):
     return fig
 
 
-# ================== نمایش کارتی در موبایل ==================
 def _fmt_cell(v, col_name=""):
-    """فرمت یک سلول برای نمایش."""
     if pd.isna(v):
         return "—"
     if isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, bool):
@@ -812,7 +745,6 @@ def _fmt_cell(v, col_name=""):
 
 def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
                         priority_cols=None):
-    """نمایش داده به شکل کارت در موبایل."""
     if df.empty:
         st.info("ردیفی برای نمایش وجود ندارد.")
         return
@@ -820,7 +752,6 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
     if priority_cols is None:
         priority_cols = [c for c in df.columns if c not in (BR, SUP)]
 
-    # اطمینان از وجود ستون‌ها
     available_cols = [c for c in priority_cols if c in df.columns]
     display = df.head(max_rows)
 
@@ -828,7 +759,6 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
         title = _fmt_cell(row.get(title_col, "")) if title_col in df.columns else ""
         sub = _fmt_cell(row.get(sub_col, "")) if sub_col in df.columns else ""
 
-        # برای جدول تارگت، عنوان و زیرعنوان متفاوت است
         if not title:
             title = sub
             sub = ""
@@ -843,14 +773,11 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
 
         sub_html = f'<div class="mcard-sup">👤 {sub}</div>' if sub else ""
 
-        # آیکون بر اساس نام ستون عنوان
         icon = "🏪"
         if "سوپروایزر" in title_col or "سرپرست" in title_col:
             icon = "👤"
         elif "کالا" in title_col:
             icon = "📦"
-        elif "شعبه" in title_col:
-            icon = "🏪"
 
         st.markdown(f"""
         <div class="mcard">
@@ -864,40 +791,8 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
         st.caption(f"🔸 نمایش {max_rows} ردیف اول از {len(df):,} — برای دیدن همه، CSV را دانلود کن.")
 
 
-def render_mobile_kpi_cards(df, kpis, max_rows=30):
-    """نمایش با KPIهای برجسته در بالای کارت‌ها."""
-    if df.empty:
-        st.info("ردیفی برای نمایش وجود ندارد.")
-        return
-
-    display = df.head(max_rows)
-    for _, row in display.iterrows():
-        title = _fmt_cell(row.get(BR, ""))
-        sub = _fmt_cell(row.get(SUP, "")) if SUP in df.columns else ""
-
-        kpi_html = ""
-        for label, col_name, style in kpis:
-            if col_name in df.columns:
-                v = _fmt_cell(row.get(col_name), col_name)
-                kpi_html += f'<div class="mcard-row"><span>{label}</span><b>{v}</b></div>'
-
-        sub_html = f'<div class="mcard-sup">👤 {sub}</div>' if sub else ""
-
-        st.markdown(f"""
-        <div class="mcard">
-            <div class="mcard-title">🏪 {title}</div>
-            {sub_html}
-            {kpi_html}
-        </div>
-        """, unsafe_allow_html=True)
-
-    if len(df) > max_rows:
-        st.caption(f"🔸 نمایش {max_rows} ردیف اول از {len(df):,}")
-
-
-def show_table(df, key, hide_supervisor=False, search=True, placeholder="جستجو در جدول...",
+def show_table(df, key, hide_supervisor=False, search=True, placeholder="جستجو...",
                priority_cols=None, title_col=NM):
-    """نمایش جدول: در موبایل کارتی، در دسکتاپ جدول."""
     view = df.copy()
     if hide_supervisor and SUP in view.columns:
         view = view.drop(columns=[SUP])
@@ -922,15 +817,13 @@ def show_table(df, key, hide_supervisor=False, search=True, placeholder="جست�
 
 
 def show_summary(df, key):
-    """نمایش خلاصه: در موبایل کارتی، در دسکتاپ جدول."""
     if df.empty:
         st.info("داده‌ای برای نمایش وجود ندارد.")
         return
 
     if is_mobile:
-        # در موبایل فقط ستون‌های مهم
         priority = [BR, SUP, "راکد ۶۰ روزه", "راکد ۴۵ روزه",
-                    "تعداد قلم", "فروش اقلام راکد (ریال)"]
+                    "تعداد قلم", "فروش (ریال)"]
         render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
                             priority_cols=priority)
     else:
@@ -956,7 +849,7 @@ def filter_by_search(view, key, placeholder):
                 term_mask |= txt.str.contains(term, na=False, regex=False)
             mask &= term_mask
         filtered = view[mask]
-        st.caption(f"🔸 {len(filtered):,} ردیف پیدا شد (از {len(view):,}) — {len(terms)} کلمه")
+        st.caption(f"🔸 {len(filtered):,} ردیف پیدا شد (از {len(view):,})")
         return filtered
     return view
 
@@ -1084,7 +977,6 @@ def render_management_kpis(df60, df45, sales_df=None):
     share = (v60 / v45 * 100) if v45 else 0
 
     if is_mobile:
-        # در موبایل هر KPI یک ردیف کامل
         st.metric("💰 ارزش راکد ۶۰ روزه", money(v60, short=True))
         st.metric("📊 اختلاف ۴۵ و ۶۰ روزه", money(v45 - v60, short=True),
                   delta=f"سهم ۶۰ از ۴۵: {share:.1f}%", delta_color="off")
@@ -1159,7 +1051,6 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
 
     if is_mobile:
         limit = st.slider("تعداد ردیف", 10, 100, 15, 5, key=f"ac_lim_{key}")
-        # در موبایل فقط فوری‌ها
         full = x[["اولویت", BR, NM, BC, QTY, VAL, S_QTY, S_AMT]].head(limit)
         for _, r in full.iterrows():
             prio = r["اولویت"]
@@ -1272,7 +1163,6 @@ def render_cash_and_abc(df60, sales_df=None):
             ("تعداد کالاهای راکد", f"{len(df60):,}"),
         ])
 
-    # DIO
     st.divider()
     st.markdown("### ⏳ تخمین DIO")
     if sales_df is not None and not sales_df.empty:
@@ -1290,7 +1180,6 @@ def render_cash_and_abc(df60, sales_df=None):
     else:
         st.info("برای محاسبه DIO، فایل فروش لازم است.")
 
-    # ABC
     st.divider()
     st.markdown("### 🔤 تحلیل ABC")
     abc = (df60.groupby([BC, NM], as_index=False)[VAL].sum()
@@ -1677,10 +1566,13 @@ def render_target_table(t_df, key_suffix=""):
         return
 
     if is_mobile:
-        priority = [c for c in ["سرپرست فروشگاه", "ریالی راکد "] if c in view.columns]
+        branch_c = cm.get("branch")
+        sup_c = cm.get("supervisor")
+        priority = [c for c in [sup_c] if c and c in view.columns]
         priority += [c for c in view.columns if "تارگت" in c or "تحقق" in c or "تغییرات" in c]
-        render_mobile_cards(view, max_rows=30, title_col="نام شعبه " if "نام شعبه " in view.columns else display_cols[0],
-                            sub_col="سرپرست فروشگاه" if "سرپرست فروشگاه" in view.columns else None,
+        render_mobile_cards(view, max_rows=30,
+                            title_col=branch_c if branch_c in view.columns else display_cols[0],
+                            sub_col=sup_c if sup_c in view.columns else None,
                             priority_cols=priority)
     else:
         st.dataframe(view, use_container_width=True, hide_index=True,
