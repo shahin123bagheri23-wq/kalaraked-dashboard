@@ -709,27 +709,35 @@ def load_all(file_path, mtime):
            "summary60": None, "sales": None, "sheets": []}
     if not Path(file_path).exists():
         return out
-    try:
-        xls = pd.ExcelFile(file_path)
-    except Exception:
-        return out
-    out["sheets"] = list(xls.sheet_names)
 
     cache_dir = Path(str(file_path)).parent / ".excel_cache"
     try:
         cache_dir.mkdir(exist_ok=True)
     except Exception:
         pass
-    try:
-        excel_mtime = Path(file_path).stat().st_mtime
-    except Exception:
-        excel_mtime = 0
 
-    def _read_cached(sheet_name):
-        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(sheet_name))[:60]
-        cache_file = cache_dir / f"{safe}.pkl"
+    mtime_int = int(float(mtime or 0))
+    final_cache = cache_dir / f"_processed_v2_{mtime_int}.pkl"
+
+    # اگر نتیجه نهایی قبلاً پردازش و ذخیره شده، مستقیم از Pickle بخوان
+    if final_cache.exists():
         try:
-            if cache_file.exists() and cache_file.stat().st_mtime >= excel_mtime:
+            return pd.read_pickle(final_cache)
+        except Exception:
+            pass
+
+    # اولین بار: اکسل را بخوان و پردازش کن
+    try:
+        xls = pd.ExcelFile(file_path)
+    except Exception:
+        return out
+    out["sheets"] = list(xls.sheet_names)
+
+    def _read(sheet_name):
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(sheet_name))[:60]
+        cache_file = cache_dir / f"raw_{safe}.pkl"
+        try:
+            if cache_file.exists() and cache_file.stat().st_mtime >= mtime_int:
                 return pd.read_pickle(cache_file)
         except Exception:
             pass
@@ -744,35 +752,49 @@ def load_all(file_path, mtime):
         s60 = find_sheet_exact(xls, SHEET_TBL60)
         s45 = find_sheet_exact(xls, SHEET_TBL45)
         if s60 and s45:
-            out["d60"] = _prep_raaked(_read_cached(s60))
-            out["d45"] = _prep_raaked(_read_cached(s45))
+            out["d60"] = _prep_raaked(_read(s60))
+            out["d45"] = _prep_raaked(_read(s45))
     except Exception as e:
         st.warning(f"⚠️ خطا در tbl60/tbl45: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_PQ45)
         if s:
-            out["pq45"] = _prep_pq(_read_cached(s), "صبح")
+            out["pq45"] = _prep_pq(_read(s), "صبح")
     except Exception as e:
         st.warning(f"⚠️ خطا در pq45: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_PQ60)
         if s:
-            out["pq60"] = _prep_pq(_read_cached(s), "عصر")
+            out["pq60"] = _prep_pq(_read(s), "عصر")
     except Exception as e:
         st.warning(f"⚠️ خطا در pq60: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_SUMMARY60)
         if s:
-            out["summary60"] = _prep_summary60(_read_cached(s))
+            out["summary60"] = _prep_summary60(_read(s))
     except Exception as e:
         st.warning(f"⚠️ خطا در خلاصه ۶۰ روزه: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_SALES)
         if s:
-            out["sales"] = _prep_sales(_read_cached(s))
+            out["sales"] = _prep_sales(_read(s))
     except Exception:
         pass
+
+    # ذخیره نتیجه نهایی پردازش‌شده
+    try:
+        pd.to_pickle(out, final_cache)
+        for old in cache_dir.glob("_processed_v2_*.pkl"):
+            if old != final_cache:
+                try:
+                    old.unlink()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     return out
+
 
 
 
