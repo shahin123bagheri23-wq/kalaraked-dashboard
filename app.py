@@ -36,8 +36,12 @@ st.set_page_config(
 )
 
 # ================== تشخیص دستگاه ==================
-screen_width = streamlit_js_eval(js_expressions="window.innerWidth", key="WIDTH")
-is_mobile = (screen_width or 400) < 768
+if "screen_width" not in st.session_state:
+    st.session_state["screen_width"] = streamlit_js_eval(
+        js_expressions="window.innerWidth", key="WIDTH"
+    )
+screen_width = st.session_state.get("screen_width") or 400
+is_mobile = screen_width < 768
 is_desktop = not is_mobile
 
 # ================== رنگ برند ==================
@@ -1316,7 +1320,17 @@ def build_sales_map(sales_df):
                              SALES_QTY: S_QTY, SALES_AMOUNT: S_AMT}))
 
 
-@st.cache_data(show_spinner=False, max_entries=32)
+def _fast_df_hash(df):
+    if df is None:
+        return "none"
+    try:
+        return (id(df), df.shape, tuple(df.columns), len(df))
+    except Exception:
+        return "err"
+
+
+@st.cache_data(show_spinner=False, max_entries=32,
+               hash_funcs={pd.DataFrame: _fast_df_hash})
 def attach_sales(df_raaked, sales_df):
     if df_raaked is None or df_raaked.empty:
         return pd.DataFrame(columns=[BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP])
@@ -1476,7 +1490,8 @@ def _finish_summary(out, int_cols):
     return out
 
 
-@st.cache_data(show_spinner=False, max_entries=16)
+@st.cache_data(show_spinner=False, max_entries=16,
+               hash_funcs={pd.DataFrame: _fast_df_hash})
 def branch_summary(df60, df45, sales_df=None):
     if df60.empty:
         return pd.DataFrame()
@@ -1504,7 +1519,8 @@ def branch_summary(df60, df45, sales_df=None):
     return out.sort_values("راکد ۶۰ روزه", ascending=False).reset_index(drop=True)
 
 
-@st.cache_data(show_spinner=False, max_entries=16)
+@st.cache_data(show_spinner=False, max_entries=16,
+               hash_funcs={pd.DataFrame: _fast_df_hash})
 def supervisor_summary(df60, df45, sales_df=None):
     if df60.empty:
         return pd.DataFrame()
