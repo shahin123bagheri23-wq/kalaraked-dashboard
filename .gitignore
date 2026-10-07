@@ -11,3 +11,19 @@ __pycache__/
 *.pkl
 .excel_cache/
 *.pkl
+config.ini
+Add-Content C:\Users\shahin\Desktop\kalaraked\.gitignore "`nconfig.ini"
+
+config.ini
+
+recipients.json
+
+contacts.json
+recipients.json
+New Text Document.txt
+fix_cache.py
+fix_email_ui.py
+fix_home_speed.py
+fix_onefile.py
+add_email_section.py
+test_email.py

@@ -2032,6 +2032,132 @@ def render_trend_comparison(summary60, key_suffix=""):
     )
 
 
+# ================== ارسال ایمیل ==================
+def render_email_sender():
+    """بخش ارسال گزارش مدیریتی از داخل داشبورد"""
+    import configparser
+    import smtplib
+    import ssl
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    st.markdown("### 📧 ارسال گزارش مدیریتی به مدیران")
+    st.caption("گزارش تحقق شعب و عملکرد سرپرست‌ها را به ایمیل‌های مشخص ارسال کنید")
+
+    cfg = configparser.ConfigParser()
+    cfg_path = Path("config.ini")
+    default_recipients = ""
+    default_subject = "گزارش مدیریتی هفتگی — کالای راکد افق کوروش"
+    if cfg_path.exists():
+        try:
+            cfg.read(cfg_path, encoding="utf-8")
+            default_recipients = cfg["REPORT"].get("recipients", "")
+            default_subject = cfg["REPORT"].get("subject", default_subject)
+        except Exception:
+            pass
+
+    if "email_recipients_list" not in st.session_state:
+        st.session_state["email_recipients_list"] = [
+            e.strip() for e in default_recipients.split(",") if e.strip()
+        ]
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        subject_input = st.text_input(
+            "📝 موضوع ایمیل",
+            value=default_subject,
+            key="email_subject_input",
+        )
+    with col2:
+        recipients_text = st.text_area(
+            "📬 ایمیل گیرندگان (با کاما جدا کنید)",
+            value=", ".join(st.session_state["email_recipients_list"]),
+            height=80,
+            key="email_recipients_text",
+        )
+
+    recipients = [r.strip() for r in recipients_text.split(",") if r.strip() and "@" in r]
+
+    if recipients:
+        st.caption(f"📧 {len(recipients)} گیرنده: {', '.join(recipients)}")
+    else:
+        st.caption("⚠️ هنوز ایمیلی وارد نشده")
+
+    st.divider()
+
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        preview_btn = st.button("👁 پیش‌نمایش گزارش", use_container_width=True, key="preview_email_btn")
+    with col_b:
+        send_btn = st.button("📧 ارسال ایمیل", type="primary", use_container_width=True, key="send_email_btn")
+
+    if preview_btn:
+        with st.spinner("در حال ساخت پیش‌نمایش..."):
+            try:
+                from send_report import build_report
+                html, stats = build_report()
+                st.success("✅ پیش‌نمایش آماده شد")
+                st.components.v1.html(html, height=700, scrolling=True)
+            except Exception as e:
+                st.error(f"❌ خطا در ساخت پیش‌نمایش: {e}")
+
+    if send_btn:
+        if not recipients:
+            st.error("❌ حداقل یک ایمیل معتبر وارد کنید")
+        else:
+            with st.spinner("در حال ساخت و ارسال گزارش..."):
+                try:
+                    from send_report import build_report, send_email
+                    html, stats = build_report()
+                    sent = send_email(html, subject=subject_input)
+                    try:
+                        if not cfg.has_section("REPORT"):
+                            cfg.add_section("REPORT")
+                        cfg["REPORT"]["recipients"] = ",".join(recipients)
+                        cfg["REPORT"]["subject"] = subject_input
+                        with open(cfg_path, "w", encoding="utf-8") as f:
+                            cfg.write(f)
+                    except Exception:
+                        pass
+                    st.success(f"✅ ایمیل با موفقیت به {len(sent)} گیرنده ارسال شد!")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"❌ خطا در ارسال ایمیل: {e}")
+                    st.caption("💡 مطمئن شو send_report.py و config.ini در همان پوشه هستند")
+
+    st.divider()
+    st.markdown("#### 📋 مدیریت لیست ایمیل‌ها")
+
+    col_x, col_y = st.columns([4, 1])
+    with col_x:
+        new_email = st.text_input(
+            "افزودن ایمیل به لیست",
+            key="add_email_input",
+            placeholder="manager@okco.ir",
+        )
+    with col_y:
+        st.write("")
+        st.write("")
+        if st.button("➕ افزودن", key="add_email_btn"):
+            if new_email and "@" in new_email:
+                if new_email not in st.session_state["email_recipients_list"]:
+                    st.session_state["email_recipients_list"].append(new_email)
+                    st.rerun()
+                else:
+                    st.warning("این ایمیل قبلاً اضافه شده")
+            else:
+                st.error("ایمیل نامعتبر")
+
+    if st.session_state["email_recipients_list"]:
+        st.markdown("**ایمیل‌های ذخیره‌شده:**")
+        for i, em in enumerate(st.session_state["email_recipients_list"]):
+            c1, c2 = st.columns([6, 1])
+            c1.write(f"📧 {em}")
+            if c2.button("🗑", key=f"del_email_{i}"):
+                st.session_state["email_recipients_list"].pop(i)
+                st.rerun()
+
+
 # ================== آپلود ==================
 def get_upload_password():
     try:
@@ -2144,6 +2270,9 @@ def render_upload():
                            HISTORY_DB.read_bytes(),
                            f"history_{now_tehran():%Y%m%d}.db",
                            "application/octet-stream", key="dl_db")
+       # بخش ارسال ایمیل
+    from email_section import render_email_section_inside_upload
+    render_email_section_inside_upload(key_suffix="up")
 
 
 # ================== تارگت ==================
