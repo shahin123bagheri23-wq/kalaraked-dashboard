@@ -1,5 +1,6 @@
 import base64
 import hmac
+import html as _htmllib
 import io
 import os
 import re
@@ -15,6 +16,17 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit_js_eval import streamlit_js_eval
+
+try:
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo("Asia/Tehran")
+except Exception:
+    _TZ = None
+
+
+def now_tehran():
+    return datetime.now(_TZ) if _TZ else datetime.now()
+
 
 st.set_page_config(
     page_title="داشبورد کالای راکد | افق کوروش",
@@ -36,17 +48,28 @@ OK_RED_LIGHT = "#FF1F5A"
 
 # ================== پوشه داده ==================
 def _resolve_data_dir():
+    # اولویت با پوشه خود برنامه است تا فایل‌های Excel کنار app.py
+    # به‌صورت خودکار پیدا و ذخیره شوند. در سرویس‌های محدود، مسیرهای جایگزین استفاده می‌شوند.
     candidates = []
     env_dir = os.environ.get("DATA_DIR")
     if env_dir:
-        candidates.append(Path(env_dir))
-    candidates += [Path("/tmp"), Path.home() / ".kalaraked", Path(".")]
+        candidates.append(Path(env_dir).expanduser())
+    try:
+        candidates.append(Path(__file__).resolve().parent)
+    except Exception:
+        pass
+    candidates += [Path.cwd(), Path.home() / ".kalaraked", Path("/tmp")]
+    seen = set()
     for c in candidates:
         try:
+            c = c.resolve()
+            if str(c) in seen:
+                continue
+            seen.add(str(c))
             c.mkdir(parents=True, exist_ok=True)
             test = c / ".write_test"
-            test.write_text("ok")
-            test.unlink()
+            test.write_text("ok", encoding="utf-8")
+            test.unlink(missing_ok=True)
             return c
         except Exception:
             continue
@@ -61,18 +84,73 @@ try:
 except Exception:
     BACKUP_DIR = DATA_DIR
 
-RAAKED_FILE = DATA_DIR / "1405-07-15 projraked.xlsx"
-SALES_FILE = DATA_DIR / "گزارش فروش راکد.xlsx"
-TARGET_FILE = DATA_DIR / "فایل تارگت.xlsx"
+RAAKED_NAME = "1405-07-15 projraked.xlsx"
+SALES_NAME = "گزارش فروش راکد.xlsx"
+TARGET_NAME = "فایل تارگت.xlsx"
+
+# مسیر خواندن: اگر فایل در DATA_DIR نبود، از پوشه برنامه می‌خوانیم
+RAAKED_FILE = DATA_DIR / RAAKED_NAME
+SALES_FILE = DATA_DIR / SALES_NAME
+TARGET_FILE = DATA_DIR / TARGET_NAME
+# مسیر نوشتن (آپلود): همیشه DATA_DIR
+RAAKED_DEST = DATA_DIR / RAAKED_NAME
+SALES_DEST = DATA_DIR / SALES_NAME
+
 TARGET_SHEET = "روند و تارگت"
 HISTORY_DB = DATA_DIR / "history.db"
 
-if not RAAKED_FILE.exists():
-    RAAKED_FILE = Path("1405-07-15 projraked.xlsx")
-if not SALES_FILE.exists():
-    SALES_FILE = Path("گزارش فروش راکد.xlsx")
-if not TARGET_FILE.exists():
-    TARGET_FILE = Path("فایل تارگت.xlsx")
+def _excel_candidates():
+    roots = [DATA_DIR]
+    try:
+        roots.append(Path(__file__).resolve().parent)
+    except Exception:
+        pass
+    if Path.cwd() not in roots:
+        roots.append(Path.cwd())
+    out = []
+    seen = set()
+    for root in roots:
+        try:
+            for f in root.glob("*.xlsx"):
+                key = str(f.resolve())
+                if key not in seen and f.name != "history.xlsx":
+                    seen.add(key)
+                    out.append(f)
+        except Exception:
+            pass
+    return out
+
+def _has_sheets(path, required):
+    try:
+        names = pd.ExcelFile(path).sheet_names
+        norm = {str(x).translate(FA_DIGITS).strip().lower() for x in names}
+        return all(str(x).translate(FA_DIGITS).strip().lower() in norm for x in required)
+    except Exception:
+        return False
+
+def _has_columns(path, required):
+    try:
+        d = pd.read_excel(path, sheet_name=0, nrows=3)
+        cols = {str(x).strip() for x in d.columns}
+        return all(any(r in c or c in r for c in cols) for r in required)
+    except Exception:
+        return False
+
+def _discover_input_files():
+    global RAAKED_FILE, SALES_FILE, TARGET_FILE
+    candidates = [
+        DATA_DIR / "1405-07-15 projraked.xlsx",
+        Path("1405-07-15 projraked.xlsx"),
+        Path.cwd() / "1405-07-15 projraked.xlsx",
+    ]
+    one = next((c for c in candidates if c.exists()), candidates[0])
+    RAAKED_FILE = one
+    SALES_FILE = one
+    TARGET_FILE = one
+    return RAAKED_FILE, SALES_FILE, TARGET_FILE
+
+
+RAAKED_FILE, SALES_FILE, TARGET_FILE = _discover_input_files()
 
 # ================== ستون‌ها ==================
 BR, BC, NM, QTY, VAL, SUP = ("نام شعبه", "بارکد", "نام کالا", "موجودی سیستمی",
@@ -127,7 +205,14 @@ CHART_NEUTRAL = "#6b7280"
 
 
 def _html(s):
-    return "\n".join(line.lstrip() for line in str(s).strip().splitlines())
+    # خطوط خالی حذف می‌شوند تا مارک‌داون بلاک HTML را وسط کارت نشکند
+    return "\n".join(line.lstrip() for line in str(s).strip().splitlines()
+                     if line.strip())
+
+
+def esc(v):
+    """escape کردن متن‌های داده‌ای قبل از قرار گرفتن داخل HTML"""
+    return _htmllib.escape(str(v))
 
 
 def st_md(s, **kwargs):
@@ -182,7 +267,10 @@ st.markdown(f"""
         box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         flex-shrink: 0;
     }}
-    a.card-link {{ text-decoration: none !important; display: block; margin-bottom: 12px; }}
+    a.card-link {{
+        text-decoration: none !important; display: block; margin-bottom: 12px;
+        flex: 1 1 0; min-width: 0;
+    }}
     a.card-link:hover {{ text-decoration: none !important; }}
     .home-card {{
         background: linear-gradient(135deg, {OK_RED_DARK} 0%, {OK_RED} 100%);
@@ -322,7 +410,7 @@ def parse_percent(series):
          .replace({"nan": None, "": None, "-": None, "None": None}))
     s = pd.to_numeric(s, errors="coerce").fillna(0)
     col_name = str(getattr(series, "name", "") or "")
-    if (not has_sign and "درصد" in col_name
+    if (not has_sign and ("درصد" in col_name or "نسبت" in col_name)
             and len(s) > 0 and s.abs().quantile(0.95) <= 1.5):
         s = s * 100
     return s
@@ -369,7 +457,12 @@ def smart_int(s):
 
 
 def money(v, short=False):
-    v = float(v or 0)
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        v = 0.0
+    if v != v:  # NaN
+        v = 0.0
     if not short:
         return f"{v:,.0f} ریال"
     abs_v = abs(v)
@@ -409,6 +502,11 @@ def find_sheet_contains(xls, name):
 
 
 # ================== پارسرها ==================
+def _clean_code(series):
+    return (series.astype(str).str.strip().str.upper()
+            .replace({"NAN": "", "NONE": ""}))
+
+
 def _prep_raaked(d, with_code=True):
     d = d.copy()
     d.columns = d.columns.astype(str).str.strip()
@@ -429,7 +527,7 @@ def _prep_raaked(d, with_code=True):
     d[BC] = clean_barcode(d[BC])
     d[BR] = normalize_name(d[BR])
     if BCODE in d.columns:
-        d[BCODE] = d[BCODE].astype(str).str.strip().str.upper()
+        d[BCODE] = _clean_code(d[BCODE])
     else:
         d[BCODE] = ""
     d[NM] = d[NM].fillna("").astype(str).str.strip()
@@ -464,6 +562,8 @@ def _prep_sales(d):
         base = c.replace(".1", "").strip()
         if "بارکد" in base and "کالا" in base and SALES_BARCODE not in d.columns:
             rename[c] = SALES_BARCODE
+        elif "نام کالا" in base and NM not in d.columns and NM not in rename.values():
+            rename[c] = NM
         elif "فروش تعدادی" in base and SALES_QTY not in d.columns:
             rename[c] = SALES_QTY
         elif ("فروش خالص" in base) and SALES_AMOUNT not in d.columns:
@@ -482,8 +582,10 @@ def _prep_sales(d):
     d[SALES_STORE] = normalize_name(d[SALES_STORE])
     d[SALES_QTY] = to_number(d[SALES_QTY])
     d[SALES_AMOUNT] = to_number(d[SALES_AMOUNT])
+    if NM in d.columns:
+        d[NM] = d[NM].fillna("").astype(str).str.strip()
     if SALES_STORE_CODE in d.columns:
-        d[SALES_STORE_CODE] = d[SALES_STORE_CODE].astype(str).str.strip().str.upper()
+        d[SALES_STORE_CODE] = _clean_code(d[SALES_STORE_CODE])
     return d.reset_index(drop=True)
 
 
@@ -502,7 +604,7 @@ def _prep_pq(d, default_shift="صبح"):
     d[BC] = clean_barcode(d[BC])
     d[BR] = normalize_name(d[BR])
     if BCODE in d.columns:
-        d[BCODE] = d[BCODE].astype(str).str.strip().str.upper()
+        d[BCODE] = _clean_code(d[BCODE])
     else:
         d[BCODE] = ""
     d[NM] = d[NM].fillna("").astype(str).str.strip()
@@ -522,10 +624,29 @@ def _prep_pq(d, default_shift="صبح"):
     return d.reset_index(drop=True)
 
 
+def _detect_pct_columns(columns):
+    """ستون‌های «درصد راکد <عدد>» را به‌ترتیب حضور در شیت پیدا می‌کند
+    (اولی = قبل، آخری = فعلی) تا به تاریخ ثابت وابسته نباشد."""
+    found = []
+    seen = set()
+    for c in columns:
+        base = re.sub(r"\.\d+$", "", str(c)).translate(FA_DIGITS).strip()
+        base = base.replace("\u200c", " ")
+        if re.fullmatch(r"درصد\s*راکد\s*\d+", base) and base not in seen:
+            seen.add(base)
+            found.append(c)
+    return found
+
+
 def _prep_summary60(d):
     d = d.copy()
     d.columns = d.columns.astype(str).str.strip()
     col = {}
+    pct_cols = _detect_pct_columns(d.columns)
+    if len(pct_cols) >= 2:
+        col["pct_old"], col["pct_new"] = pct_cols[0], pct_cols[-1]
+    elif len(pct_cols) == 1:
+        col["pct_new"] = pct_cols[0]
     for c in d.columns:
         base = c.replace(".1", "").replace(".2", "").strip()
         low = base.lower()
@@ -539,10 +660,6 @@ def _prep_summary60(d):
             col["val"] = c
         elif "تعدادی اقلام راکد" in base and "qty" not in col:
             col["qty"] = c
-        elif ("درصد راکد13" in base or "درصد راکد 13" in base) and "pct_old" not in col:
-            col["pct_old"] = c
-        elif ("درصد راکد15" in base or "درصد راکد 15" in base) and "pct_new" not in col:
-            col["pct_new"] = c
         elif ("افت/ رشد درصدی" in base or "افت / رشد درصدی" in base
               or "افت/رشد درصدی" in base):
             col["diff_pct"] = c
@@ -556,7 +673,7 @@ def _prep_summary60(d):
     if col.get("branch"):
         out[BR] = normalize_name(d[col["branch"]])
     if col.get("code"):
-        out[BCODE] = d[col["code"]].astype(str).str.strip().str.upper()
+        out[BCODE] = _clean_code(d[col["code"]])
     if col.get("sup"):
         out[SUP] = normalize_name(d[col["sup"]]).replace("", "نامشخص")
     if col.get("val"):
@@ -597,58 +714,94 @@ def load_all(file_path, mtime):
     except Exception:
         return out
     out["sheets"] = list(xls.sheet_names)
+
+    cache_dir = Path(str(file_path)).parent / ".excel_cache"
+    try:
+        cache_dir.mkdir(exist_ok=True)
+    except Exception:
+        pass
+    try:
+        excel_mtime = Path(file_path).stat().st_mtime
+    except Exception:
+        excel_mtime = 0
+
+    def _read_cached(sheet_name):
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(sheet_name))[:60]
+        cache_file = cache_dir / f"{safe}.pkl"
+        try:
+            if cache_file.exists() and cache_file.stat().st_mtime >= excel_mtime:
+                return pd.read_pickle(cache_file)
+        except Exception:
+            pass
+        df = pd.read_excel(xls, sheet_name=sheet_name)
+        try:
+            df.to_pickle(cache_file)
+        except Exception:
+            pass
+        return df
+
     try:
         s60 = find_sheet_exact(xls, SHEET_TBL60)
         s45 = find_sheet_exact(xls, SHEET_TBL45)
         if s60 and s45:
-            out["d60"] = _prep_raaked(pd.read_excel(xls, sheet_name=s60))
-            out["d45"] = _prep_raaked(pd.read_excel(xls, sheet_name=s45))
+            out["d60"] = _prep_raaked(_read_cached(s60))
+            out["d45"] = _prep_raaked(_read_cached(s45))
     except Exception as e:
         st.warning(f"⚠️ خطا در tbl60/tbl45: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_PQ45)
         if s:
-            out["pq45"] = _prep_pq(pd.read_excel(xls, sheet_name=s), "صبح")
+            out["pq45"] = _prep_pq(_read_cached(s), "صبح")
     except Exception as e:
         st.warning(f"⚠️ خطا در pq45: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_PQ60)
         if s:
-            out["pq60"] = _prep_pq(pd.read_excel(xls, sheet_name=s), "عصر")
+            out["pq60"] = _prep_pq(_read_cached(s), "عصر")
     except Exception as e:
         st.warning(f"⚠️ خطا در pq60: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_SUMMARY60)
         if s:
-            out["summary60"] = _prep_summary60(pd.read_excel(xls, sheet_name=s))
+            out["summary60"] = _prep_summary60(_read_cached(s))
     except Exception as e:
         st.warning(f"⚠️ خطا در خلاصه ۶۰ روزه: {e}")
     try:
         s = find_sheet_exact(xls, SHEET_SALES)
         if s:
-            out["sales"] = _prep_sales(pd.read_excel(xls, sheet_name=s))
+            out["sales"] = _prep_sales(_read_cached(s))
     except Exception:
         pass
     return out
 
 
+
+
 @st.cache_data(show_spinner=False)
 def load_sales(mtime):
-    if not SALES_FILE.exists():
+    if not RAAKED_FILE.exists():
         return None
     try:
-        xls = pd.ExcelFile(SALES_FILE)
-        return _prep_sales(pd.read_excel(xls, sheet_name=0))
+        xls = pd.ExcelFile(RAAKED_FILE)
+        sh = find_sheet_exact(xls, SHEET_SALES)
+        if sh:
+            return _prep_sales(pd.read_excel(xls, sheet_name=sh))
     except Exception:
-        return None
+        pass
+    return None
+
 
 
 @st.cache_data(show_spinner=False)
 def load_target(mtime):
-    if not TARGET_FILE.exists():
+    if not RAAKED_FILE.exists():
         return None
     try:
-        t = pd.read_excel(TARGET_FILE, sheet_name=TARGET_SHEET)
+        xls = pd.ExcelFile(RAAKED_FILE)
+        sh = find_sheet_exact(xls, "تارگت") or find_sheet_exact(xls, TARGET_SHEET)
+        if not sh:
+            return None
+        t = pd.read_excel(xls, sheet_name=sh)
         t.columns = t.columns.astype(str).str.strip()
         for c in t.columns:
             if "نام شعبه" in c or "سرپرست" in c:
@@ -660,6 +813,7 @@ def load_target(mtime):
         return t
     except Exception:
         return None
+
 
 
 def detect_target_columns(t):
@@ -676,7 +830,10 @@ def detect_target_columns(t):
         "target": next((c for c in cols if c.startswith("تارگت") and "تغییرات" not in c), None),
         "achievement": next((c for c in cols if "تحقق" in c), None),
         "change": next((c for c in cols if c.startswith("تغییرات") and "تارگت" not in c), None),
-    }def _connect():
+    }
+
+
+def _connect():
     return closing(sqlite3.connect(HISTORY_DB))
 
 
@@ -800,7 +957,7 @@ def _backup(path, keep=10):
     if not p.exists():
         return
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(p, BACKUP_DIR / f"{datetime.now():%Y%m%d_%H%M%S}__{p.name}")
+    shutil.copy2(p, BACKUP_DIR / f"{now_tehran():%Y%m%d_%H%M%S}__{p.name}")
     files = sorted(BACKUP_DIR.glob(f"*__{p.name}"))
     if len(files) > keep:
         for old in files[:-keep]:
@@ -816,7 +973,9 @@ def data_quality_report(df60, df45, df_sales=None):
         ("راکد ۶۰ روزه", df60, BC, NM, VAL),
         ("راکد ۴۵ روزه", df45, BC, NM, VAL),
     ]:
-        if df is None or df.empty:
+        if df is None:  # این بخش در این آپلود بررسی نمی‌شود
+            continue
+        if df.empty:
             issues.append(f"⚠️ **{label}**: خالی است")
             continue
         n = len(df)
@@ -846,17 +1005,17 @@ def data_quality_report(df60, df45, df_sales=None):
 def process_raaked_upload(data, date_str, note):
     d60, d45 = parse_raaked(io.BytesIO(data))
     rows = save_raaked_history(d60, d45, date_str, note)
-    _backup(RAAKED_FILE)
-    _atomic_write(RAAKED_FILE, data)
+    _backup(RAAKED_DEST)
+    _atomic_write(RAAKED_DEST, data)
     return rows, data_quality_report(d60, d45)
 
 
 def process_sales_upload(data, date_str, note):
     s = _prep_sales(pd.read_excel(io.BytesIO(data), sheet_name=0))
     rows = save_sales_history(s, date_str, note)
-    _backup(SALES_FILE)
-    _atomic_write(SALES_FILE, data)
-    return rows, data_quality_report(pd.DataFrame(), pd.DataFrame(), s)
+    _backup(SALES_DEST)
+    _atomic_write(SALES_DEST, data)
+    return rows, data_quality_report(None, None, s)
 
 
 def get_logo_html(size=38):
@@ -879,7 +1038,7 @@ def render_header(subtitle=""):
     <div class="ok-header">
         <div>
             <p class="ok-header-title">داشبورد مدیریت کالای راکد</p>
-            <p class="ok-header-sub">{subtitle or "فروشگاه‌های زنجیره‌ای افق کوروش"}</p>
+            <p class="ok-header-sub">{esc(subtitle or "فروشگاه‌های زنجیره‌ای افق کوروش")}</p>
         </div>
         <div class="ok-logo-wrap">{get_logo_html(size=32 if is_mobile else 45)}</div>
     </div>
@@ -929,8 +1088,6 @@ def _fmt_cell(v, col_name=""):
     if isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, bool):
         if "٪" in col_name or "درصد" in col_name or "تحقق" in col_name:
             return f"{v:.1f}%"
-        if abs(v) >= 1_000_000:
-            return f"{v:,.0f}"
         if abs(v) >= 1_000:
             return f"{v:,.0f}"
         if v == int(v):
@@ -955,7 +1112,7 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
     display = df.head(max_rows)
     for _, row in display.iterrows():
         title = _fmt_cell(row.get(title_col, "")) if title_col in df.columns else ""
-        sub = _fmt_cell(row.get(sub_col, "")) if sub_col in df.columns else ""
+        sub = _fmt_cell(row.get(sub_col, "")) if (sub_col and sub_col in df.columns) else ""
         if not title:
             title = sub
             sub = ""
@@ -973,9 +1130,9 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
             v = row.get(c)
             if pd.isna(v):
                 continue
-            val_str = _fmt_cell(v, c)
-            rows_html += f'<div class="mcard-row"><span>{c}</span><b>{val_str}</b></div>'
-        sub_html = f'<div class="mcard-sup">👤 {sub}</div>' if sub else ""
+            val_str = esc(_fmt_cell(v, c))
+            rows_html += f'<div class="mcard-row"><span>{esc(c)}</span><b>{val_str}</b></div>'
+        sub_html = f'<div class="mcard-sup">👤 {esc(sub)}</div>' if sub else ""
         icon = "🏪"
         if "کالا" in title_col:
             icon = "📦"
@@ -984,7 +1141,7 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
         st_md(f"""
         <div class="mcard">
             {badge_html}
-            <div class="mcard-title">{icon} {title}</div>
+            <div class="mcard-title">{icon} {esc(title)}</div>
             {sub_html}
             {rows_html}
         </div>
@@ -1113,11 +1270,16 @@ def show_summary(df, key):
 def export_to_excel(dfs: dict, filename="report.xlsx"):
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        wrote = False
         for name, df in dfs.items():
             if df is None or df.empty:
                 continue
             safe = re.sub(r'[\\/*?:\[\]]', '', str(name))[:31]
             df.to_excel(writer, sheet_name=safe, index=False)
+            wrote = True
+        if not wrote:
+            pd.DataFrame({"پیام": ["داده‌ای برای خروجی وجود ندارد"]}).to_excel(
+                writer, sheet_name="خالی", index=False)
     buf.seek(0)
     return buf.getvalue()
 
@@ -1149,7 +1311,8 @@ def attach_sales(df_raaked, sales_df):
     out[S_QTY] = out[S_QTY].fillna(0)
     out[S_AMT] = out[S_AMT].fillna(0)
     unit = (out[VAL] / out[QTY]).where(out[QTY] > 0, 0)
-    out[S_REL] = (np.minimum(out[S_QTY].clip(lower=0), out[QTY]) * unit).round(0).astype("int64")
+    sold_cap = np.minimum(out[S_QTY].clip(lower=0), out[QTY].clip(lower=0))
+    out[S_REL] = (sold_cap * unit).round(0).astype("int64")
     out[S_QTY] = smart_int(out[S_QTY])
     out[S_AMT] = out[S_AMT].round(0).astype("int64")
     cols = [BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP]
@@ -1245,8 +1408,10 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
 
     st.caption("🔴 فوری = بدون فروش و جزو ۲۵٪ بالای ارزش | 🟡 پیگیری = بدون فروش | 🟢 عادی = فروش رفته")
 
+    limit = st.slider("تعداد ردیف", 10, 100, 15, 5, key=f"ac_lim_{key}")
+    csv_bytes = (x.drop(columns=["_p"]).to_csv(index=False).encode("utf-8-sig"))
+
     if is_mobile:
-        limit = st.slider("تعداد ردیف", 10, 100, 15, 5, key=f"ac_lim_{key}")
         full = x[["اولویت", BR, NM, BC, QTY, VAL, S_QTY, S_AMT]].head(limit)
         for _, r in full.iterrows():
             prio = r["اولویت"]
@@ -1263,21 +1428,18 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
             st_md(f"""
             <div class="mcard" style="border-right-color: {badge_bg};">
                 <div class="mcard-badge" style="background:{badge_bg};">{badge_icon} {prio}</div>
-                <div class="mcard-title">📦 {r[NM]}</div>
-                <div class="mcard-sup">🏪 {r[BR]}</div>
-                <div class="mcard-row"><span>بارکد</span><b>{r[BC]}</b></div>
-                <div class="mcard-row"><span>موجودی</span><b>{_fmt_cell(r[QTY])}</b></div>
-                <div class="mcard-row"><span>ارزش راکد</span><b>{_fmt_cell(r[VAL])} ریال</b></div>
-                <div class="mcard-row"><span>فروش</span><b>{_fmt_cell(r[S_QTY])} عدد</b></div>
+                <div class="mcard-title">📦 {esc(r[NM])}</div>
+                <div class="mcard-sup">🏪 {esc(r[BR])}</div>
+                <div class="mcard-row"><span>بارکد</span><b>{esc(r[BC])}</b></div>
+                <div class="mcard-row"><span>موجودی</span><b>{esc(_fmt_cell(r[QTY]))}</b></div>
+                <div class="mcard-row"><span>ارزش راکد</span><b>{esc(_fmt_cell(r[VAL]))} ریال</b></div>
+                <div class="mcard-row"><span>فروش</span><b>{esc(_fmt_cell(r[S_QTY]))} عدد</b></div>
             </div>
             """)
-        csv_bytes = x.to_csv(index=False).encode("utf-8-sig")
     else:
-        limit = st.slider("تعداد ردیف نمایش", 10, 100, 15, 5, key=f"ac_lim_{key}")
         full = x[["اولویت", BR, NM, BC, QTY, VAL, S_QTY, S_AMT, SUP]].head(limit)
         st.dataframe(full, use_container_width=True, hide_index=True,
                      column_config=column_config(full))
-        csv_bytes = x.to_csv(index=False).encode("utf-8-sig")
 
     st.download_button("⬇️ دانلود فهرست کامل (CSV)", csv_bytes,
                        f"action_center_{key}.csv", "text/csv", key=f"dl_ac_{key}")
@@ -1304,7 +1466,7 @@ def branch_summary(df60, df45, sales_df=None):
     })
     out[SUP] = out[SUP].fillna("نامشخص")
     out["راکد ۴۵ روزه"] = out["راکد ۴۵ روزه"].fillna(0)
-    out["تعداد قلم"] = out["تعداد قلم"].fillna(0)
+    out["تعداد قلم"] = out["تعداد قلم"].fillna(0).astype("int64")
     out["اختلاف ۴۵ و ۶۰"] = out["راکد ۴۵ روزه"] - out["راکد ۶۰ روزه"]
     out["فروش (تعداد)"] = 0.0
     out["فروش (ریال)"] = 0.0
@@ -1370,14 +1532,18 @@ def render_cash_and_abc(df60, sales_df=None):
     st.divider()
     st.markdown("### ⏳ تخمین DIO")
     if sales_df is not None and not sales_df.empty:
+        days = st.number_input("تعداد روزهای گزارش فروش", min_value=1, max_value=365,
+                               value=30, step=1, key="dio_days",
+                               help="فایل فروش مربوط به چند روز است؟ فروش روزانه = کل فروش ÷ این عدد")
         matched_sales = attach_sales(df60, sales_df)
-        daily_sales_value = matched_sales[S_AMT].sum()
+        period_sales = matched_sales[S_AMT].sum()
+        daily_sales_value = period_sales / days
         if daily_sales_value > 0:
             dio = total / daily_sales_value
             st.metric("DIO تخمینی", f"{dio:.1f} روز",
                       delta="🟢 مناسب" if dio < 90 else "🔴 بحرانی",
                       delta_color="normal" if dio < 90 else "inverse",
-                      help="ارزش راکد ÷ فروش روزانه")
+                      help="ارزش راکد ÷ فروش روزانه (فقط فروش همین اقلام راکد)")
             st.caption(f"💡 ارزش راکد: {money(total, short=True)} | فروش روزانه: {money(daily_sales_value, short=True)}")
         else:
             st.info("فروشی برای محاسبه DIO وجود ندارد.")
@@ -1400,6 +1566,7 @@ def render_cash_and_abc(df60, sales_df=None):
                             ["A — بحرانی", "B — متوسط"], default="C — کم‌ارزش")
     summary = (abc.groupby("دسته").agg(تعداد=(BC, "count"), ارزش=(VAL, "sum"))
                .reset_index().sort_values("دسته"))
+    summary["برچسب"] = summary["تعداد"].apply(lambda v: f"{v} قلم")
     colors = {"A — بحرانی": CHART_PIE_RED, "B — متوسط": CHART_PIE_YELLOW,
               "C — کم‌ارزش": CHART_PIE_GREEN}
 
@@ -1413,12 +1580,12 @@ def render_cash_and_abc(df60, sales_df=None):
         </div>
         """)
 
+    # text از ستون px داده می‌شود تا برای هر دسته (هر trace) برچسب درست بیفتد
     fig = px.bar(summary, x="دسته", y="ارزش", color="دسته", color_discrete_map=colors,
-                 title="توزیع ارزش راکد بر اساس ABC")
+                 text="برچسب", title="توزیع ارزش راکد بر اساس ABC")
     fig.update_layout(showlegend=False, height=320 if is_mobile else 350)
     fig = plotly_style(fig)
-    fig.update_traces(textfont=dict(color=CHART_TEXT, size=10), textposition="outside",
-                      text=summary["تعداد"].apply(lambda v: f"{v} قلم"))
+    fig.update_traces(textfont=dict(color=CHART_TEXT, size=10), textposition="outside")
     st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("📋 جدول کامل ABC"):
@@ -1528,6 +1695,9 @@ def render_comparison():
     if date1 == date2:
         st.warning("دو تاریخ یکسان انتخاب شده.")
         return
+    if date1 > date2:
+        st.warning("تاریخ «از» باید قبل از تاریخ «به» باشد.")
+        return
 
     cmp_df = get_history_comparison(date1, date2, kind)
     if cmp_df is None or cmp_df.empty:
@@ -1553,26 +1723,32 @@ def render_comparison():
         ])
 
     st.markdown("#### 🎯 بیشترین افزایش و کاهش")
-    gainers = cmp_df.sort_values("تغییر", ascending=False).head(5).copy()
-    losers = cmp_df.sort_values("تغییر", ascending=True).head(5).copy()
+    gainers = (cmp_df[cmp_df["تغییر"] > 0]
+               .sort_values("تغییر", ascending=False).head(5).copy())
+    losers = (cmp_df[cmp_df["تغییر"] < 0]
+              .sort_values("تغییر", ascending=True).head(5).copy())
 
     if is_mobile:
         st.markdown("**🔴 بیشترین افزایش راکد**")
+        if gainers.empty:
+            st.caption("شعبه‌ای با افزایش راکد نبود.")
         for _, r in gainers.iterrows():
             st_md(f"""
             <div class="mcard" style="border-right-color: {OK_RED};">
                 <div class="mcard-badge" style="background:{OK_RED};">🔴 افزایش</div>
-                <div class="mcard-title">🏪 {r['branch']}</div>
+                <div class="mcard-title">🏪 {esc(r['branch'])}</div>
                 <div class="mcard-row"><span>افزایش</span><b>{money(r['تغییر'], short=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
             </div>
             """)
         st.markdown("**🟢 بیشترین کاهش راکد**")
+        if losers.empty:
+            st.caption("شعبه‌ای با کاهش راکد نبود.")
         for _, r in losers.iterrows():
             st_md(f"""
             <div class="mcard" style="border-right-color: {CHART_PIE_GREEN};">
                 <div class="mcard-badge" style="background:{CHART_PIE_GREEN};">🟢 کاهش</div>
-                <div class="mcard-title">🏪 {r['branch']}</div>
+                <div class="mcard-title">🏪 {esc(r['branch'])}</div>
                 <div class="mcard-row"><span>کاهش</span><b>{money(r['تغییر'], short=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
             </div>
@@ -1699,7 +1875,7 @@ def render_trend_comparison(summary60, key_suffix=""):
     has_new = S60_PCT_NEW in df.columns
     has_diff = S60_DIFF_PCT in df.columns
     if not (has_old and has_new):
-        st.warning("ستون‌های درصد راکد در شیت خلاصه پیدا نشد.")
+        st.warning("ستون‌های «درصد راکد <عدد>» (دو ستون یا بیشتر) در شیت خلاصه پیدا نشد.")
         return
     mean_old = df[S60_PCT_OLD].mean()
     mean_new = df[S60_PCT_NEW].mean()
@@ -1764,13 +1940,17 @@ def render_trend_comparison(summary60, key_suffix=""):
         df["_diff"] = df[S60_PCT_NEW] - df[S60_PCT_OLD]
         df = df.sort_values("_diff", ascending=True).reset_index(drop=True)
         df[S60_DIFF_PCT] = df["_diff"]
+        df = df.drop(columns=["_diff"])
     q = st.text_input("🔍 جستجو", key=f"trend_search_{key_suffix}",
                       placeholder="نام شعبه یا سرپرست")
     view = df.copy()
     if q and q.strip():
         qn = normalize_query(q)
         mask = view.astype(str).apply(
-            lambda col: col.str.lower().str.contains(qn, na=False, regex=False)
+            lambda col: (col.str.lower().str.translate(FA_DIGITS)
+                         .str.replace("ي", "ی", regex=False)
+                         .str.replace("ك", "ک", regex=False)
+                         .str.contains(qn, na=False, regex=False))
         ).any(axis=1)
         view = view[mask]
         st.caption(f"🔸 {len(view):,} ردیف")
@@ -1785,13 +1965,17 @@ def render_trend_comparison(summary60, key_suffix=""):
                 bg, icon, label = OK_RED, "🔴", "افت"
             else:
                 bg, icon, label = CHART_NEUTRAL, "⚪", "بدون تغییر"
+            old_v = r.get(S60_PCT_OLD, 0)
+            new_v = r.get(S60_PCT_NEW, 0)
+            old_v = 0 if pd.isna(old_v) else old_v
+            new_v = 0 if pd.isna(new_v) else new_v
             st_md(f"""
             <div class="mcard" style="border-right-color: {bg};">
                 <div class="mcard-badge" style="background:{bg};">{icon} {label} {diff:+.2f}%</div>
-                <div class="mcard-title">🏪 {r.get(BR, '')}</div>
-                <div class="mcard-sup">👤 {r.get(SUP, '—')}</div>
-                <div class="mcard-row"><span>قبل</span><b>{r.get(S60_PCT_OLD, 0):.2f}%</b></div>
-                <div class="mcard-row"><span>فعلی</span><b>{r.get(S60_PCT_NEW, 0):.2f}%</b></div>
+                <div class="mcard-title">🏪 {esc(r.get(BR, ''))}</div>
+                <div class="mcard-sup">👤 {esc(r.get(SUP, '—'))}</div>
+                <div class="mcard-row"><span>قبل</span><b>{old_v:.2f}%</b></div>
+                <div class="mcard-row"><span>فعلی</span><b>{new_v:.2f}%</b></div>
                 <div class="mcard-row"><span>ارزش راکد</span><b>{money(r.get(VAL, 0), short=True)}</b></div>
             </div>
             """)
@@ -1822,8 +2006,10 @@ def get_upload_password():
 def check_upload_access():
     pw = get_upload_password()
     if not pw:
-        st.warning("⚠️ رمز آپلود تنظیم نشده.")
-        return True
+        # بدون رمز، هر کسی که لینک را داشته باشد می‌تواند داده را جایگزین کند؛ پس دسترسی بسته می‌ماند
+        st.error("🔒 رمز آپلود تنظیم نشده است. برای فعال‌سازی آپلود، "
+                 "`UPLOAD_PASSWORD` را در Secrets یا متغیر محیطی تنظیم کنید.")
+        return False
     if st.session_state.get("upload_ok"):
         return True
     entered = st.text_input("🔒 رمز آپلود", type="password", key="upload_pw")
@@ -1840,8 +2026,13 @@ def render_upload():
     if not check_upload_access():
         return
     flash = st.session_state.pop("flash", None)
+    flash_issues = st.session_state.pop("flash_issues", None)
     if flash:
         st.success(flash)
+    if flash_issues:
+        with st.expander("🔍 گزارش کیفیت داده", expanded=True):
+            for it in flash_issues:
+                st.markdown(it)
 
     st.markdown("### 📤 آپلود فایل‌های جدید")
     st.warning("⚠️ **قبل از آپلود**، در اکسل `Ctrl+Alt+F5` بزنید (Refresh All) "
@@ -1849,7 +2040,7 @@ def render_upload():
     st.info("فایل قبل از جایگزینی اعتبارسنجی می‌شود و از نسخه قبلی بک‌آپ گرفته می‌شود.")
 
     picked = st.date_input("📅 تاریخ این آپدیت",
-                           value=datetime.now().date(), key="upload_date_pick")
+                           value=now_tehran().date(), key="upload_date_pick")
     upd_date = picked.strftime("%Y-%m-%d")
     try:
         import jdatetime
@@ -1880,11 +2071,7 @@ def render_upload():
             f = st.file_uploader(label, type=["xlsx"], key=fkey)
             if f and st.button(btn, use_container_width=True, key=bkey, type="primary"):
                 try:
-                    out = fn(f.getvalue(), upd_date, note)
-                    if isinstance(out, tuple):
-                        rows, dq = out
-                    else:
-                        rows, dq = out, []
+                    rows, dq = fn(f.getvalue(), upd_date, note)
                     result = f"✅ {name} ذخیره شد ({rows:,} ردیف)"
                     if dq:
                         issues = dq
@@ -1892,14 +2079,11 @@ def render_upload():
                     st.error(f"❌ خطا: {e}")
                     st.caption("💡 فایل قبلی دست‌نخورده ماند.")
 
-    if issues:
-        with st.expander("🔍 گزارش کیفیت داده", expanded=True):
-            for it in issues:
-                st.markdown(it)
-
     if result:
         st.cache_data.clear()
         st.session_state["flash"] = result
+        if issues:
+            st.session_state["flash_issues"] = issues
         st.rerun()
 
     st.divider()
@@ -1920,7 +2104,7 @@ def render_upload():
     if HISTORY_DB.exists():
         st.download_button("⬇️ دانلود بک‌آپ دیتابیس",
                            HISTORY_DB.read_bytes(),
-                           f"history_{datetime.now():%Y%m%d}.db",
+                           f"history_{now_tehran():%Y%m%d}.db",
                            "application/octet-stream", key="dl_db")
 
 
@@ -1962,7 +2146,10 @@ def render_target_table(t_df, key_suffix=""):
     if q and q.strip():
         qn = normalize_query(q)
         mask = view.astype(str).apply(
-            lambda col: col.str.lower().str.contains(qn, na=False, regex=False)).any(axis=1)
+            lambda col: (col.str.lower().str.translate(FA_DIGITS)
+                         .str.replace("ي", "ی", regex=False)
+                         .str.replace("ك", "ک", regex=False)
+                         .str.contains(qn, na=False, regex=False))).any(axis=1)
         view = view[mask]
         st.caption(f"🔸 {len(view):,} ردیف")
 
@@ -2046,13 +2233,14 @@ def render_ranking(t_df, key_suffix=""):
         if is_mobile:
             for _, r in df.iterrows():
                 _, bg, icon = status_badge(r[ach_col])
+                sup_txt = r.get(sup_col, '—') if sup_col else '—'
                 st_md(f"""
                 <div class="mcard">
                     <div class="mcard-badge" style="background:{bg};">{icon} رتبه {r['رتبه']}</div>
-                    <div class="mcard-title">🏪 {r[branch_col]}</div>
-                    <div class="mcard-sup">👤 {r.get(sup_col, '—')}</div>
+                    <div class="mcard-title">🏪 {esc(r[branch_col])}</div>
+                    <div class="mcard-sup">👤 {esc(sup_txt)}</div>
                     <div class="mcard-row"><span>تحقق</span><b>{r[ach_col]:.1f}%</b></div>
-                    <div class="mcard-row"><span>وضعیت</span><b>{r['وضعیت']}</b></div>
+                    <div class="mcard-row"><span>وضعیت</span><b>{esc(r['وضعیت'])}</b></div>
                 </div>
                 """)
         else:
@@ -2065,7 +2253,8 @@ def render_ranking(t_df, key_suffix=""):
 
     show_rank(rank_df.head(min(10, n)), "🥇 بهترین ۱۰ شعبه")
     worst = rank_df.tail(min(10, n)).sort_values(ach_col).reset_index(drop=True)
-    worst["رتبه"] = range(n - len(worst) + 1, n + 1)
+    # بدترین شعبه آخرین رتبه (n) را دارد؛ پس شمارش از n به پایین است
+    worst["رتبه"] = list(range(n, n - len(worst), -1))
     show_rank(worst, "⚠️ بدترین ۱۰ شعبه")
 
     if sup_col:
@@ -2085,7 +2274,7 @@ def render_ranking(t_df, key_suffix=""):
                 st_md(f"""
                 <div class="mcard">
                     <div class="mcard-badge" style="background:{bg};">{icon} رتبه {r['رتبه']}</div>
-                    <div class="mcard-title">👤 {r[sup_col]}</div>
+                    <div class="mcard-title">👤 {esc(r[sup_col])}</div>
                     <div class="mcard-row"><span>شعب</span><b>{int(r['تعداد شعبه'])}</b></div>
                     <div class="mcard-row"><span>میانگین تحقق</span><b>{r['میانگین تحقق']:.1f}%</b></div>
                 </div>
@@ -2110,7 +2299,8 @@ def render_weekly_target(t_df):
     target = d[target_col].mean()
     achieved = d[ach_col].mean()
     gap = achieved - target
-    elapsed = max(datetime.now().weekday() + 1, 1)
+    # هفته ایران از شنبه شروع می‌شود (شنبه=۱ ... جمعه=۷) و بر اساس ساعت تهران
+    elapsed = (now_tehran().weekday() + 2) % 7 + 1
     forecast = achieved / elapsed * 7
 
     st.markdown("### 🎯 تارگت هفتگی")
@@ -2162,7 +2352,7 @@ if page not in VALID_PAGES:
 # ================== خواندن داده ==================
 data_error = None
 all_data = {"d60": None, "d45": None, "pq45": None, "pq60": None,
-            "summary60": None, "sales": None}
+            "summary60": None, "sales": None, "sheets": []}
 try:
     all_data = load_all(RAAKED_FILE, _mtime(RAAKED_FILE))
 except Exception as e:
@@ -2190,6 +2380,16 @@ df_target = load_target(_mtime(TARGET_FILE))
 if data_error and page != "upload":
     render_header("خطا در بارگذاری داده")
     st.error(f"فایل راکد خوانده نشد: {data_error}")
+    st_md('<a class="back-link" href="?page=upload" target="_self">📤 آپلود</a>')
+    st.stop()
+
+if page != "upload" and all_data.get("d60") is None:
+    render_header("داده‌ای برای نمایش نیست")
+    if not Path(RAAKED_FILE).exists():
+        st.warning("فایل راکد پیدا نشد. از بخش آپلود، فایل راکد را بارگذاری کنید.")
+    else:
+        sheets = "، ".join(all_data.get("sheets") or []) or "—"
+        st.warning(f"شیت‌های tbl60 و tbl45 در فایل راکد پیدا نشد. شیت‌های موجود: {sheets}")
     st_md('<a class="back-link" href="?page=upload" target="_self">📤 آپلود</a>')
     st.stop()
 
@@ -2237,7 +2437,9 @@ if page == "home":
                 col.markdown(_html(card_html(*c)), unsafe_allow_html=True)
     else:
         for i in range(0, len(CARDS), 3):
-            row = "".join(card_html(*c) for c in CARDS[i:i + 3])
+            chunk = CARDS[i:i + 3]
+            row = "".join(card_html(*c) for c in chunk)
+            row += '<div style="flex:1 1 0; min-width:0;"></div>' * (3 - len(chunk))
             st.markdown(_html(f'<div style="display:flex; gap:12px; align-items:stretch; '
                               f'margin-bottom:12px;">{row}</div>'), unsafe_allow_html=True)
 
@@ -2272,7 +2474,7 @@ elif page == "district":
                 "تارگت": df_target,
             })
         st.download_button("⬇️ دانلود", xls_bytes,
-                           f"district_{datetime.now():%Y%m%d}.xlsx",
+                           f"district_{now_tehran():%Y%m%d}.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="dl_district_xls")
     st.divider()
