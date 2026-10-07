@@ -40,3 +40,16 @@ uploads/
 .venv/
 __pycache__/
 *.pyc
+
+config.ini
+contacts.json
+recipients.json
+bale_state.json
+history.db
+.excel_cache/
+*.pkl
+backups/
+uploads/
+.venv/
+__pycache__/
+*.pyc
