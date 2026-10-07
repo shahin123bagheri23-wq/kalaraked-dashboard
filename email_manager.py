@@ -72,15 +72,29 @@ def parse_contacts_file(file_bytes, filename="contacts.xlsx"):
     email_col = find_col(["email", "ایمیل", "mail"])
     name_col = find_col(["نام", "name"])
     type_col = find_col(["نوع", "type", "role", "نقش"])
+    chat_col = find_col(["chat_id", "chat", "bale", "بله"])
 
-    if email_col is None:
-        raise ValueError("ستون ایمیل در فایل پیدا نشد. یک ستون با عنوان «ایمیل» اضافه کن.")
+    if email_col is None and chat_col is None:
+        raise ValueError("ستون ایمیل یا chat_id در فایل پیدا نشد.")
 
     contacts = []
     for _, row in df.iterrows():
-        email = str(row.get(email_col, "")).strip()
-        if not email or "@" not in email:
+        email = str(row.get(email_col, "")).strip() if email_col else ""
+        chat_id = None
+        if chat_col:
+            raw_chat = row.get(chat_col)
+            s = str(raw_chat).strip()
+            if s not in ("", "nan", "None"):
+                try:
+                    chat_id = int(float(s))
+                except (ValueError, TypeError):
+                    chat_id = None
+
+        if not email and not chat_id:
             continue
+        if email and "@" not in email:
+            email = ""
+
         name_v = str(row.get(name_col, "")).strip() if name_col else ""
         type_v = str(row.get(type_col, "")).strip().lower() if type_col else "regular"
 
@@ -91,6 +105,22 @@ def parse_contacts_file(file_bytes, filename="contacts.xlsx"):
         else:
             t = "regular"
 
-        contacts.append({"name": name_v, "email": email, "type": t})
+        entry = {"name": name_v, "email": email, "type": t}
+        if chat_id:
+            entry["bale_chat_id"] = chat_id
+        contacts.append(entry)
 
     return contacts
+
+
+def update_contact_chat_id(email_or_name, chat_id):
+    contacts = load_contacts()
+    updated = False
+    for c in contacts:
+        if c.get("email") == email_or_name or c.get("name") == email_or_name:
+            c["bale_chat_id"] = int(chat_id)
+            updated = True
+            break
+    if updated:
+        save_contacts(contacts)
+    return updated

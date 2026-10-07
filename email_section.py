@@ -1,4 +1,4 @@
-"""بخش ارسال ایمیل — داخل صفحه آپلود"""
+"""بخش ارسال ایمیل و بله — داخل صفحه آپلود"""
 from datetime import datetime
 
 import pandas as pd
@@ -70,9 +70,6 @@ def _build_regular_report():
           <p>🟢 موفق: {success} شعبه</p>
           <p>🟡 در حال پیشرفت: {warning} شعبه</p>
           <p>🔴 بحرانی: {danger} شعبه</p>
-          <p style="margin-top:20px;color:#888;font-size:12px;">
-            برای جزئیات بیشتر به داشبورد مراجعه کنید.
-          </p>
         </div>
       </div>
     </body></html>
@@ -185,146 +182,162 @@ def _build_supervisor_report(supervisor_name):
     return html, {"mean_ach": mean_ach, "branches": len(sub), "total_raked": total_raked}
 
 
-# ================== صفحه اصلی ==================
+def _build_supervisor_bale_text(supervisor_name, stats):
+    return (
+        f"📊 <b>گزارش عملکرد هفتگی</b>\n"
+        f"👤 {supervisor_name}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"✅ میانگین تحقق: <b>{stats['mean_ach']:.1f}%</b>\n"
+        f"🏪 تعداد شعبه: {stats['branches']}\n"
+        f"💰 مجموع راکد: {stats['total_raked']:,.0f} ریال\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📅 {datetime.now().strftime('%Y-%m-%d')}"
+    )
+
+
 def render_email_section_inside_upload(key_suffix="up"):
-    st.markdown("### 📧 ارسال ایمیل گزارش")
-    st.caption("مدیریت مخاطبین — دستی یا ایمپورت از اکسل — و ارسال گزارش به سه گروه")
+    st.markdown("### 📧 ارسال ایمیل و بله")
+    st.caption("مدیریت مخاطبین و ارسال گزارش به سه گروه: سوپروایزر، مدیر، عادی")
 
     contacts = load_contacts()
 
-    # ================== مدیریت مخاطبین ==================
     with st.expander("👥 مدیریت مخاطبین", expanded=not contacts):
-        tab_import, tab_manual, tab_list = st.tabs([
+        tab_import, tab_manual, tab_auto, tab_list = st.tabs([
             "📁 ایمپورت از اکسل",
             "➕ افزودن دستی",
+            "📥 دریافت chat_id از بله",
             "📋 لیست مخاطبین",
         ])
 
-        # ---------- تب ایمپورت ----------
+        # ---------- ایمپورت ----------
         with tab_import:
             st.markdown("""
             **فرمت فایل اکسل/CSV:**
-            | نام | ایمیل | نوع |
-            |---|---|---|
-            | علی رضایی | ali@okco.ir | supervisor |
-            | مدیر عامل | ceo@okco.ir | manager |
-            | سارا احمدی | sara@okco.ir | regular |
+            | نام | ایمیل | نوع | chat_id |
+            |---|---|---|---|
+            | علی رضایی | ali@okco.ir | supervisor | 123456789 |
+            | مدیر عامل | ceo@okco.ir | manager | 987654321 |
             """)
-
-            up_file = st.file_uploader(
-                "انتخاب فایل",
-                type=["xlsx", "csv"],
-                key=f"contacts_up_{key_suffix}",
-            )
-
+            up_file = st.file_uploader("انتخاب فایل", type=["xlsx", "csv"],
+                                        key=f"contacts_up_{key_suffix}")
             if up_file and st.button("📥 ایمپورت کن", key=f"import_btn_{key_suffix}", type="primary"):
                 try:
                     new_c = parse_contacts_file(up_file.getvalue(), up_file.name)
-                    existing = {c["email"] for c in contacts}
+                    existing_emails = {c.get("email") for c in contacts if c.get("email")}
+                    existing_chats = {c.get("bale_chat_id") for c in contacts if c.get("bale_chat_id")}
                     added = 0
                     for c in new_c:
-                        if c["email"] not in existing:
-                            contacts.append(c)
-                            existing.add(c["email"])
-                            added += 1
+                        e = c.get("email")
+                        cid = c.get("bale_chat_id")
+                        if e and e in existing_emails:
+                            continue
+                        if cid and cid in existing_chats:
+                            continue
+                        contacts.append(c)
+                        if e:
+                            existing_emails.add(e)
+                        if cid:
+                            existing_chats.add(cid)
+                        added += 1
                     save_contacts(contacts)
                     st.success(f"✅ {added} مخاطب اضافه شد — کل: {len(contacts)}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ {e}")
 
-        # ---------- تب افزودن دستی ----------
+        # ---------- افزودن دستی ----------
         with tab_manual:
             st.markdown("**افزودن یک مخاطب جدید**")
-
             with st.form(f"add_contact_form_{key_suffix}", clear_on_submit=True):
                 col_a, col_b = st.columns(2)
                 with col_a:
                     m_name = st.text_input("نام", placeholder="مثلاً علی ابراهیمی نیا")
                 with col_b:
-                    m_email = st.text_input("ایمیل", placeholder="ali@okco.ir")
-
-                m_type_label = st.selectbox(
-                    "نوع",
-                    list(TYPE_LABELS.values()),
-                    index=0,
-                )
-
-                submitted = st.form_submit_button("➕ افزودن", type="primary", use_container_width=True)
-
+                    m_email = st.text_input("ایمیل (اختیاری)", placeholder="ali@okco.ir")
+                col_c, col_d = st.columns(2)
+                with col_c:
+                    m_chat = st.text_input("chat_id بله (اختیاری)",
+                                            placeholder="مثلاً 123456789")
+                with col_d:
+                    m_type_label = st.selectbox("نوع", list(TYPE_LABELS.values()), index=0)
+                submitted = st.form_submit_button("➕ افزودن", type="primary",
+                                                   use_container_width=True)
                 if submitted:
                     e = (m_email or "").strip()
                     n = (m_name or "").strip()
+                    chat_raw = (m_chat or "").strip()
                     t = LABEL_TO_TYPE.get(m_type_label, "regular")
-
-                    if not e:
-                        st.error("ایمیل رو وارد کن")
-                    elif "@" not in e or "." not in e:
+                    chat_id = None
+                    if chat_raw:
+                        try:
+                            chat_id = int(float(chat_raw))
+                        except (ValueError, TypeError):
+                            st.error("chat_id باید عدد باشه")
+                    if not e and not chat_id:
+                        st.error("حداقل ایمیل یا chat_id بله رو وارد کن")
+                    elif e and ("@" not in e or "." not in e):
                         st.error("فرمت ایمیل درست نیست")
-                    elif any(c["email"] == e for c in contacts):
+                    elif e and any(c.get("email") == e for c in contacts):
                         st.error("این ایمیل قبلاً اضافه شده")
                     else:
-                        contacts.append({"name": n, "email": e, "type": t})
+                        entry = {"name": n, "email": e, "type": t}
+                        if chat_id:
+                            entry["bale_chat_id"] = chat_id
+                        contacts.append(entry)
                         save_contacts(contacts)
-                        st.success(f"✅ {e} اضافه شد")
+                        st.success("✅ اضافه شد")
                         st.rerun()
 
-        # ---------- تب لیست ----------
+        # ---------- دریافت خودکار chat_id ----------
+        with tab_auto:
+            try:
+                from bale_chat_id_helper import render_chat_id_fetcher
+                render_chat_id_fetcher(key_suffix)
+            except Exception as e:
+                st.error(f"❌ خطا: {e}")
+
+        # ---------- لیست ----------
         with tab_list:
             if not contacts:
                 st.info("هنوز مخاطبی نداری.")
             else:
                 st.markdown(f"**{len(contacts)} مخاطب**")
-
-                # فیلتر بر اساس نوع
                 filter_options = ["همه"] + list(TYPE_LABELS.values())
-                selected_filter = st.selectbox(
-                    "🔍 فیلتر بر اساس نوع",
-                    filter_options,
-                    key=f"contact_filter_{key_suffix}",
-                )
-
+                selected_filter = st.selectbox("🔍 فیلتر بر اساس نوع", filter_options,
+                                                key=f"contact_filter_{key_suffix}")
                 if selected_filter == "همه":
                     display_contacts = list(enumerate(contacts))
                 else:
                     ft = LABEL_TO_TYPE[selected_filter]
-                    display_contacts = [
-                        (i, c) for i, c in enumerate(contacts) if c["type"] == ft
-                    ]
-
-                if not display_contacts:
-                    st.info("مخاطبی با این فیلتر پیدا نشد.")
-                else:
-                    for i, c in display_contacts:
-                        col1, col2, col3, col4 = st.columns([3, 3, 2, 1])
-                        col1.markdown(f"**{c.get('name') or '—'}**")
-                        col2.markdown(f"`{c['email']}`")
-                        col3.markdown(TYPE_LABELS.get(c["type"], c["type"]))
-                        if col4.button("🗑", key=f"del_contact_{i}_{key_suffix}",
-                                       use_container_width=True):
-                            contacts.pop(i)
-                            save_contacts(contacts)
-                            st.rerun()
-
-                if st.button("🗑 پاک کردن همه مخاطبین",
-                             key=f"clear_all_{key_suffix}",
-                             type="secondary"):
+                    display_contacts = [(i, c) for i, c in enumerate(contacts) if c["type"] == ft]
+                for i, c in display_contacts:
+                    col1, col2, col3, col4 = st.columns([3, 3, 2, 1])
+                    with col1:
+                        st.markdown(f"**{c.get('name') or '—'}**")
+                        if c.get("bale_chat_id"):
+                            st.caption(f"📱 {c['bale_chat_id']}")
+                    with col2:
+                        st.markdown(f"`{c.get('email') or '—'}`")
+                    with col3:
+                        st.markdown(TYPE_LABELS.get(c["type"], c["type"]))
+                    if col4.button("🗑", key=f"del_contact_{i}_{key_suffix}", use_container_width=True):
+                        contacts.pop(i)
+                        save_contacts(contacts)
+                        st.rerun()
+                if st.button("🗑 پاک کردن همه", key=f"clear_all_{key_suffix}"):
                     save_contacts([])
                     st.rerun()
 
-    # ================== ادامه ==================
     if not contacts:
-        st.info("📭 برای ارسال ایمیل، اول یک مخاطب اضافه کن.")
+        st.info("📭 برای ارسال، اول یک مخاطب اضافه کن.")
         return
 
     supervisors = [c for c in contacts if c["type"] == "supervisor"]
     managers = [c for c in contacts if c["type"] == "manager"]
     regulars = [c for c in contacts if c["type"] == "regular"]
 
-    st.markdown(
-        f"**📊 مخاطبین:** 👤 {len(supervisors)} سوپروایزر | "
-        f"🏆 {len(managers)} مدیر | 📬 {len(regulars)} عادی"
-    )
+    st.markdown(f"**📊 مخاطبین:** 👤 {len(supervisors)} سوپروایزر | "
+                f"🏆 {len(managers)} مدیر | 📬 {len(regulars)} عادی")
 
     st.divider()
 
@@ -342,7 +355,6 @@ def render_email_section_inside_upload(key_suffix="up"):
         _tab_regulars(regulars, key_suffix)
 
 
-# ================== تب سوپروایزر ==================
 def _tab_supervisors(supervisors, key_suffix):
     st.markdown("#### 👤 ارسال به سوپروایزرها")
     st.caption("هر سوپروایزر فقط گزارش شعبه‌های خودش رو دریافت می‌کنه")
@@ -351,20 +363,22 @@ def _tab_supervisors(supervisors, key_suffix):
         st.info("هیچ سوپروایزری در لیست نیست.")
         return
 
-    sup_names = [(c["name"] or c["email"], c) for c in supervisors]
-    selected_label = st.selectbox(
-        "🔍 پیش‌نمایش کدام سوپروایزر؟",
-        ["(هیچ‌کدام)"] + [n for n, _ in sup_names],
-        key=f"sup_sel_{key_suffix}",
-    )
+    sup_names = [(c.get("name") or c.get("email") or f"#{i}", c)
+                 for i, c in enumerate(supervisors)]
+    selected_label = st.selectbox("🔍 انتخاب سوپروایزر",
+                                   ["(هیچ‌کدام)"] + [n for n, _ in sup_names],
+                                   key=f"sup_sel_{key_suffix}")
 
     if selected_label != "(هیچ‌کدام)":
         contact = next(c for n, c in sup_names if n == selected_label)
-        actual_name = contact["name"] or contact["email"]
+        actual_name = contact.get("name") or contact.get("email") or ""
 
-        c1, c2 = st.columns(2)
+        st.markdown(f"**📧 ایمیل:** `{contact.get('email') or '—'}` | "
+                    f"**📱 chat_id:** `{contact.get('bale_chat_id') or '—'}`")
+
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
-            if st.button("👁 پیش‌نمایش", key=f"sup_prev_{key_suffix}", use_container_width=True):
+            if st.button("👁 پیش‌نمایش ایمیل", key=f"sup_prev_{key_suffix}", use_container_width=True):
                 try:
                     html, stats = _build_supervisor_report(actual_name)
                     st.session_state[f"sup_prev_html_{key_suffix}"] = html
@@ -372,62 +386,121 @@ def _tab_supervisors(supervisors, key_suffix):
                 except Exception as e:
                     st.error(f"❌ {e}")
         with c2:
-            if st.button("📤 ارسال", key=f"sup_send_{key_suffix}",
+            if st.button("📤 ارسال ایمیل", key=f"sup_send_{key_suffix}",
                          type="primary", use_container_width=True):
+                if not contact.get("email"):
+                    st.error("❌ ایمیل ثبت نشده")
+                else:
+                    try:
+                        html, _ = _build_supervisor_report(actual_name)
+                        subject = f"گزارش عملکرد — {actual_name}"
+                        _send_emails(html, subject, [contact["email"]])
+                        st.success("✅ ایمیل ارسال شد")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"❌ {e}")
+        with c3:
+            if st.button("📱 پیش‌نمایش بله", key=f"bale_prev_{key_suffix}", use_container_width=True):
                 try:
-                    html, _ = _build_supervisor_report(actual_name)
-                    subject = f"گزارش عملکرد — {actual_name}"
-                    sent = _send_emails(html, subject, [contact["email"]])
-                    st.success(f"✅ ارسال به {', '.join(sent)}")
-                    st.balloons()
+                    _, stats = _build_supervisor_report(actual_name)
+                    st.session_state[f"bale_prev_txt_{key_suffix}"] = \
+                        _build_supervisor_bale_text(actual_name, stats)
                 except Exception as e:
                     st.error(f"❌ {e}")
+        with c4:
+            if st.button("📱 ارسال بله", key=f"bale_send_{key_suffix}",
+                         type="primary", use_container_width=True):
+                cid = contact.get("bale_chat_id")
+                if not cid:
+                    st.error("❌ chat_id بله ثبت نشده")
+                else:
+                    try:
+                        from bale_sender import send_message
+                        _, stats = _build_supervisor_report(actual_name)
+                        txt = _build_supervisor_bale_text(actual_name, stats)
+                        send_message(cid, txt)
+                        st.success("✅ پیام بله ارسال شد")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"❌ {e}")
 
         if st.session_state.get(f"sup_prev_html_{key_suffix}"):
-            with st.expander("👁 پیش‌نمایش", expanded=True):
+            with st.expander("👁 پیش‌نمایش ایمیل", expanded=True):
                 stats = st.session_state.get(f"sup_prev_stats_{key_suffix}", {})
                 if stats:
-                    st.caption(
-                        f"میانگین تحقق: {stats.get('mean_ach', 0):.1f}% | "
-                        f"تعداد شعبه: {stats.get('branches', 0)}"
-                    )
-                st.components.v1.html(
-                    st.session_state[f"sup_prev_html_{key_suffix}"],
-                    height=500, scrolling=True,
-                )
+                    st.caption(f"میانگین تحقق: {stats.get('mean_ach', 0):.1f}% | "
+                               f"تعداد شعبه: {stats.get('branches', 0)}")
+                st.components.v1.html(st.session_state[f"sup_prev_html_{key_suffix}"],
+                                       height=500, scrolling=True)
+
+        if st.session_state.get(f"bale_prev_txt_{key_suffix}"):
+            with st.expander("📱 پیش‌نمایش پیام بله", expanded=True):
+                st.code(st.session_state[f"bale_prev_txt_{key_suffix}"], language=None)
 
     st.divider()
-    st.markdown("#### 📤 ارسال گروهی به همه سوپروایزرها")
+    st.markdown("#### 📤 ارسال گروهی")
 
-    subject_all = st.text_input(
-        "موضوع ایمیل",
-        value="گزارش عملکرد هفتگی — کالای راکد",
-        key=f"sup_subj_{key_suffix}",
-    )
+    subject_all = st.text_input("موضوع ایمیل گروهی",
+                                 value="گزارش عملکرد هفتگی — کالای راکد",
+                                 key=f"sup_subj_{key_suffix}")
 
-    if st.button("📨 ارسال به همه", key=f"sup_all_{key_suffix}", type="primary"):
-        progress = st.progress(0)
-        ok, fail = [], []
-        for i, c in enumerate(supervisors):
-            progress.progress((i + 1) / len(supervisors),
-                              text=f"ارسال به {c['name'] or c['email']}...")
-            try:
-                name = c["name"] or c["email"]
-                html, _ = _build_supervisor_report(name)
-                _send_emails(html, subject_all, [c["email"]])
-                ok.append(c["email"])
-            except Exception as e:
-                fail.append(f"{c['email']}: {e}")
-        progress.empty()
-        if ok:
-            st.success(f"✅ ارسال موفق به {len(ok)} سوپروایزر")
-        if fail:
-            with st.expander(f"❌ {len(fail)} خطا"):
-                for f in fail:
-                    st.error(f)
+    c_a, c_b = st.columns(2)
+    with c_a:
+        if st.button("📨 ارسال ایمیل به همه", key=f"sup_all_{key_suffix}",
+                     type="primary", use_container_width=True):
+            progress = st.progress(0)
+            ok, fail = [], []
+            for i, c in enumerate(supervisors):
+                name = c.get("name") or c.get("email")
+                if not c.get("email"):
+                    fail.append(f"{name}: ایمیل نداره")
+                    continue
+                progress.progress((i + 1) / len(supervisors), text=f"ایمیل به {name}...")
+                try:
+                    html, _ = _build_supervisor_report(name)
+                    _send_emails(html, subject_all, [c["email"]])
+                    ok.append(name)
+                except Exception as e:
+                    fail.append(f"{name}: {e}")
+            progress.empty()
+            if ok:
+                st.success(f"✅ ایمیل موفق: {len(ok)}")
+            if fail:
+                with st.expander(f"❌ {len(fail)} خطا"):
+                    for f in fail:
+                        st.error(f)
+
+    with c_b:
+        if st.button("📱 ارسال بله به همه", key=f"bale_all_{key_suffix}",
+                     type="primary", use_container_width=True):
+            progress = st.progress(0)
+            ok, fail, skip = [], [], []
+            for i, c in enumerate(supervisors):
+                name = c.get("name") or c.get("email")
+                cid = c.get("bale_chat_id")
+                if not cid:
+                    skip.append(name)
+                    continue
+                progress.progress((i + 1) / len(supervisors), text=f"بله به {name}...")
+                try:
+                    from bale_sender import send_message
+                    _, stats = _build_supervisor_report(name)
+                    txt = _build_supervisor_bale_text(name, stats)
+                    send_message(cid, txt)
+                    ok.append(name)
+                except Exception as e:
+                    fail.append(f"{name}: {e}")
+            progress.empty()
+            if ok:
+                st.success(f"✅ بله موفق: {len(ok)}")
+            if skip:
+                st.warning(f"⚠️ بدون chat_id: {len(skip)}")
+            if fail:
+                with st.expander(f"❌ {len(fail)} خطا"):
+                    for f in fail:
+                        st.error(f)
 
 
-# ================== تب مدیر ==================
 def _tab_managers(managers, key_suffix):
     st.markdown("#### 🏆 ارسال گزارش مدیریتی")
     st.caption("گزارش کامل با KPI، رتبه‌بندی شعب، سرپرست‌ها و سوپروایزرهای منطقه")
@@ -436,14 +509,13 @@ def _tab_managers(managers, key_suffix):
         st.info("هیچ مدیری در لیست نیست.")
         return
 
-    emails = [c["email"] for c in managers]
-    st.markdown(f"**گیرندگان ({len(managers)}):** " + "، ".join(emails))
+    emails = [c["email"] for c in managers if c.get("email")]
+    if emails:
+        st.markdown(f"**📧 گیرندگان ایمیل ({len(emails)}):** " + "، ".join(emails))
 
-    subject = st.text_input(
-        "موضوع ایمیل",
-        value="گزارش مدیریتی هفتگی — کالای راکد افق کوروش",
-        key=f"mgr_subj_{key_suffix}",
-    )
+    subject = st.text_input("موضوع ایمیل",
+                             value="گزارش مدیریتی هفتگی — کالای راکد افق کوروش",
+                             key=f"mgr_subj_{key_suffix}")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -457,31 +529,29 @@ def _tab_managers(managers, key_suffix):
     with c2:
         if st.button("📤 ارسال به همه مدیران", key=f"mgr_send_{key_suffix}",
                      type="primary", use_container_width=True):
-            try:
-                html, _ = _build_manager_report()
-                sent = _send_emails(html, subject, emails)
-                st.success(f"✅ ارسال به {', '.join(sent)}")
-                st.balloons()
-            except Exception as e:
-                st.error(f"❌ {e}")
+            if not emails:
+                st.error("❌ هیچ ایمیلی ثبت نشده")
+            else:
+                try:
+                    html, _ = _build_manager_report()
+                    sent = _send_emails(html, subject, emails)
+                    st.success(f"✅ ایمیل به {', '.join(sent)} ارسال شد")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"❌ {e}")
 
     if st.session_state.get(f"mgr_prev_html_{key_suffix}"):
         with st.expander("👁 پیش‌نمایش", expanded=True):
             stats = st.session_state.get(f"mgr_prev_stats_{key_suffix}", {})
             if stats:
-                st.caption(
-                    f"میانگین تحقق: {stats.get('mean_ach', 0):.1f}% | "
-                    f"موفق: {stats.get('success', 0)} | "
-                    f"بحرانی: {stats.get('danger', 0)} | "
-                    f"کل: {stats.get('branches', 0)}"
-                )
-            st.components.v1.html(
-                st.session_state[f"mgr_prev_html_{key_suffix}"],
-                height=700, scrolling=True,
-            )
+                st.caption(f"میانگین تحقق: {stats.get('mean_ach', 0):.1f}% | "
+                           f"موفق: {stats.get('success', 0)} | "
+                           f"بحرانی: {stats.get('danger', 0)} | "
+                           f"کل: {stats.get('branches', 0)}")
+            st.components.v1.html(st.session_state[f"mgr_prev_html_{key_suffix}"],
+                                   height=700, scrolling=True)
 
 
-# ================== تب عادی ==================
 def _tab_regulars(regulars, key_suffix):
     st.markdown("#### 📬 ارسال گزارش خلاصه")
     st.caption("گزارش کوتاه شامل KPI کلی")
@@ -490,14 +560,13 @@ def _tab_regulars(regulars, key_suffix):
         st.info("هیچ فرد عادی در لیست نیست.")
         return
 
-    emails = [c["email"] for c in regulars]
-    st.markdown(f"**گیرندگان ({len(regulars)}):** " + "، ".join(emails))
+    emails = [c["email"] for c in regulars if c.get("email")]
+    if emails:
+        st.markdown(f"**📧 گیرندگان ({len(emails)}):** " + "، ".join(emails))
 
-    subject = st.text_input(
-        "موضوع ایمیل",
-        value="گزارش خلاصه کالای راکد — افق کوروش",
-        key=f"reg_subj_{key_suffix}",
-    )
+    subject = st.text_input("موضوع ایمیل",
+                             value="گزارش خلاصه کالای راکد — افق کوروش",
+                             key=f"reg_subj_{key_suffix}")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -510,17 +579,18 @@ def _tab_regulars(regulars, key_suffix):
     with c2:
         if st.button("📤 ارسال به همه", key=f"reg_send_{key_suffix}",
                      type="primary", use_container_width=True):
-            try:
-                html, _ = _build_regular_report()
-                sent = _send_emails(html, subject, emails)
-                st.success(f"✅ ارسال به {', '.join(sent)}")
-                st.balloons()
-            except Exception as e:
-                st.error(f"❌ {e}")
+            if not emails:
+                st.error("❌ هیچ ایمیلی ثبت نشده")
+            else:
+                try:
+                    html, _ = _build_regular_report()
+                    sent = _send_emails(html, subject, emails)
+                    st.success(f"✅ ایمیل به {', '.join(sent)} ارسال شد")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"❌ {e}")
 
     if st.session_state.get(f"reg_prev_html_{key_suffix}"):
         with st.expander("👁 پیش‌نمایش", expanded=True):
-            st.components.v1.html(
-                st.session_state[f"reg_prev_html_{key_suffix}"],
-                height=400, scrolling=True,
-            )
+            st.components.v1.html(st.session_state[f"reg_prev_html_{key_suffix}"],
+                                   height=400, scrolling=True)

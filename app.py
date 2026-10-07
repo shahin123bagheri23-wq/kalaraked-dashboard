@@ -190,7 +190,7 @@ REQUIRED_SALES = [SALES_BARCODE, SALES_QTY, SALES_AMOUNT, SALES_STORE]
 ACH_OK, ACH_WARN = 100, 80
 HOLD_RATE_DEFAULT = 2.0
 VALID_PAGES = {"home", "district", "store", "supervisor", "target",
-               "analytics", "upload", "shift", "trend"}
+               "analytics", "upload", "shift", "trend", "report"}
 
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 BARCODE_LIKE_RE = r"^\d{8,}$"
@@ -2270,10 +2270,7 @@ def render_upload():
                            HISTORY_DB.read_bytes(),
                            f"history_{now_tehran():%Y%m%d}.db",
                            "application/octet-stream", key="dl_db")
-       # بخش ارسال ایمیل
-    from email_section import render_email_section_inside_upload
-    render_email_section_inside_upload(key_suffix="up")
-
+    
 
 # ================== تارگت ==================
 def render_target_kpis(t_df):
@@ -2584,6 +2581,7 @@ CARDS = [
     ("target", "🎯", "تارگت و روند", "اهداف و رتبه‌بندی", False),
     ("shift", "📋", "چک‌لیست شیفت", "پیگیری صبح و عصر", True),
     ("trend", "📈", "روند و مقایسه", "افت و رشد شعب", True),
+    ("report", "📨", "ارسال گزارش", "بله + ایمیل", True),
     ("analytics", "💰", "تحلیل پیشرفته", "ABC و نمودارها", False),
     ("upload", "📤", "آپلود و تاریخچه", "فایل جدید", False),
 ]
@@ -2757,3 +2755,8 @@ elif page == "upload":
     back_link()
     render_header("آپلود فایل و تاریخچه")
     render_upload()
+elif page == "report":
+    back_link()
+    render_header("ارسال گزارش")
+    from report_sender import render_report_sender
+    render_report_sender(key_suffix="main")

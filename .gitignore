@@ -27,3 +27,16 @@ fix_home_speed.py
 fix_onefile.py
 add_email_section.py
 test_email.py
+
+config.ini
+contacts.json
+recipients.json
+bale_state.json
+history.db
+.excel_cache/
+*.pkl
+backups/
+uploads/
+.venv/
+__pycache__/
+*.pyc
