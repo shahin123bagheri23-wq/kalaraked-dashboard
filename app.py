@@ -61,39 +61,58 @@ try:
 except Exception:
     BACKUP_DIR = DATA_DIR
 
-RAAKED_FILE = DATA_DIR / "اقلام راکد 60  45   دیتا (1).xlsx"
+RAAKED_FILE = DATA_DIR / "1405-07-15 projraked.xlsx"
 SALES_FILE = DATA_DIR / "گزارش فروش راکد.xlsx"
 TARGET_FILE = DATA_DIR / "فایل تارگت.xlsx"
 TARGET_SHEET = "روند و تارگت"
 HISTORY_DB = DATA_DIR / "history.db"
 
 if not RAAKED_FILE.exists():
-    RAAKED_FILE = Path("اقلام راکد 60  45   دیتا (1).xlsx")
+    RAAKED_FILE = Path("1405-07-15 projraked.xlsx")
 if not SALES_FILE.exists():
     SALES_FILE = Path("گزارش فروش راکد.xlsx")
 if not TARGET_FILE.exists():
     TARGET_FILE = Path("فایل تارگت.xlsx")
 
-SALES_BARCODE = "بارکد کالا"
-SALES_QTY = "فروش تعدادی"
-SALES_AMOUNT = "فروش خالص با مالیات"
-SALES_STORE = "نام انبار/فروشگاه"
-
+# ================== ستون‌ها ==================
 BR, BC, NM, QTY, VAL, SUP = ("نام شعبه", "بارکد", "نام کالا", "موجودی سیستمی",
                              "موجودی ریالی اقلام راکد", "سوپروایزر")
+BCODE = "کد شعبه"
+SHIFT = "شیفت"
+ROW_NUM = "ردیف"
 S_QTY, S_AMT, S_REL = "فروش (تعداد)", "فروش (ریال)", "ارزش آزادشده"
+
+SALES_BARCODE = "بارکد کالا"
+SALES_QTY = "فروش تعدادی"
+SALES_AMOUNT = "فروش خالص"
+SALES_STORE = "نام انبار/فروشگاه"
+SALES_STORE_CODE = "کد انبار/فروشگاه"
+
+SHEET_TBL60 = "tbl60"
+SHEET_TBL45 = "tbl45"
+SHEET_SUMMARY60 = "60 روزه"
+SHEET_PQ45 = "pq45"
+SHEET_PQ60 = "pq60"
+SHEET_SALES = "tblSales"
+
+S60_PCT_OLD = "درصد راکد قبل"
+S60_PCT_NEW = "درصد راکد فعلی"
+S60_DIFF_PCT = "افت/رشد درصدی"
+S60_DIFF_TXT = "وضعیت"
+S60_RATIO = "نسبت راکد"
+S60_INV_AMOUNT = "ارزش کل موجودی"
 
 REQUIRED_RAAKED = [BR, BC, NM, QTY, VAL]
 REQUIRED_SALES = [SALES_BARCODE, SALES_QTY, SALES_AMOUNT, SALES_STORE]
 
 ACH_OK, ACH_WARN = 100, 80
 HOLD_RATE_DEFAULT = 2.0
-VALID_PAGES = {"home", "district", "store", "supervisor", "target", "analytics", "upload"}
+VALID_PAGES = {"home", "district", "store", "supervisor", "target",
+               "analytics", "upload", "shift", "trend"}
 
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 BARCODE_LIKE_RE = r"^\d{8,}$"
 
-# ================== تم شب ==================
 BG, BG2 = "#0f0f12", "#1a1a1f"
 TXT, TXT2 = "#e5e7eb", "#9ca3af"
 CARD_BG, INPUT_BG = "#1a1a1f", "#26262c"
@@ -107,7 +126,6 @@ CHART_PIE_GREEN, CHART_PIE_YELLOW, CHART_PIE_RED = "#10b981", "#f59e0b", "#E6003
 CHART_NEUTRAL = "#6b7280"
 
 
-# ================== HTML Helper ==================
 def _html(s):
     return "\n".join(line.lstrip() for line in str(s).strip().splitlines())
 
@@ -117,7 +135,6 @@ def st_md(s, **kwargs):
     return st.markdown(_html(s), **kwargs)
 
 
-# ================== استایل ==================
 st.markdown(f"""
 <style>
     :root {{
@@ -223,8 +240,6 @@ st.markdown(f"""
     }}
     .alert-card.warn {{ border-right-color: #f59e0b; }}
     .alert-card.ok {{ border-right-color: #10b981; }}
-
-    /* ============ کارت موبایل ============ */
     .mcard {{
         background: {CARD_BG}; border-right: 4px solid {OK_RED};
         border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
@@ -251,7 +266,6 @@ st.markdown(f"""
     }}
     .mcard-row span {{ color: {TXT2}; flex-shrink: 0; }}
     .mcard-row b {{ color: {TXT}; font-weight: 600; text-align: left; word-break: break-word; }}
-
     .stDownloadButton button {{ font-size: 0.78rem !important; padding: 6px 12px !important; }}
     div[data-testid="stSelectbox"] {{ margin-bottom: 4px; }}
     div[data-testid="stSlider"] {{ margin-bottom: 4px; }}
@@ -262,7 +276,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
-# ================== توابع کمکی داده ==================
+# ================== توابع کمکی ==================
 def clean_barcode(series):
     return (series.astype(str).str.translate(FA_DIGITS)
             .str.replace(r"\.0$", "", regex=True)
@@ -378,27 +392,46 @@ def valid_date(s):
         return False
 
 
-# ================== خواندن اکسل ==================
-def find_sheet(xls, key):
-    for name in xls.sheet_names:
-        if key in name.translate(FA_DIGITS):
-            return name
-    raise ValueError(f"شیت «{key} روزه» پیدا نشد. شیت‌های موجود: {'، '.join(xls.sheet_names)}")
+def find_sheet_exact(xls, name):
+    target = name.translate(FA_DIGITS).strip().lower()
+    for s in xls.sheet_names:
+        if s.translate(FA_DIGITS).strip().lower() == target:
+            return s
+    return None
 
 
-def _prep_raaked(d):
+def find_sheet_contains(xls, name):
+    target = name.translate(FA_DIGITS).strip().lower()
+    for s in xls.sheet_names:
+        if target in s.translate(FA_DIGITS).strip().lower():
+            return s
+    return None
+
+
+# ================== پارسرها ==================
+def _prep_raaked(d, with_code=True):
     d = d.copy()
     d.columns = d.columns.astype(str).str.strip()
-    missing = [c for c in REQUIRED_RAAKED if c not in d.columns]
+    required = [BR, BC, NM, QTY, VAL]
+    if with_code:
+        required.append(BCODE)
+    missing = [c for c in required if c not in d.columns]
     if missing:
         raise ValueError(
             f"ستون‌های لازم پیدا نشد: {'، '.join(missing)}\n"
             f"ستون‌های موجود: {'، '.join(d.columns.astype(str).tolist())}"
         )
+    for drop_col in ("کد شعبه .1", "کد شعبه.1"):
+        if drop_col in d.columns:
+            d = d.drop(columns=[drop_col])
     d = remove_totals(d)
     d = remove_invalid_rows(d)
     d[BC] = clean_barcode(d[BC])
     d[BR] = normalize_name(d[BR])
+    if BCODE in d.columns:
+        d[BCODE] = d[BCODE].astype(str).str.strip().str.upper()
+    else:
+        d[BCODE] = ""
     d[NM] = d[NM].fillna("").astype(str).str.strip()
     if SUP in d.columns:
         d[SUP] = normalize_name(d[SUP]).replace("", "نامشخص")
@@ -411,25 +444,139 @@ def _prep_raaked(d):
 
 def parse_raaked(source):
     xls = pd.ExcelFile(source)
-    d60 = _prep_raaked(pd.read_excel(xls, sheet_name=find_sheet(xls, "60")))
-    d45 = _prep_raaked(pd.read_excel(xls, sheet_name=find_sheet(xls, "45")))
+    sheet60 = find_sheet_exact(xls, SHEET_TBL60)
+    sheet45 = find_sheet_exact(xls, SHEET_TBL45)
+    if not sheet60 or not sheet45:
+        raise ValueError(
+            f"شیت‌های tbl60 و tbl45 پیدا نشد.\n"
+            f"شیت‌های موجود: {'، '.join(xls.sheet_names)}"
+        )
+    d60 = _prep_raaked(pd.read_excel(xls, sheet_name=sheet60))
+    d45 = _prep_raaked(pd.read_excel(xls, sheet_name=sheet45))
     return d60, d45
 
 
-def parse_sales(source):
-    s = pd.read_excel(source, sheet_name=0)
-    s.columns = s.columns.astype(str).str.strip()
-    missing = [c for c in REQUIRED_SALES if c not in s.columns]
+def _prep_sales(d):
+    d = d.copy()
+    d.columns = d.columns.astype(str).str.strip()
+    rename = {}
+    for c in d.columns:
+        base = c.replace(".1", "").strip()
+        if "بارکد" in base and "کالا" in base and SALES_BARCODE not in d.columns:
+            rename[c] = SALES_BARCODE
+        elif "فروش تعدادی" in base and SALES_QTY not in d.columns:
+            rename[c] = SALES_QTY
+        elif ("فروش خالص" in base) and SALES_AMOUNT not in d.columns:
+            rename[c] = SALES_AMOUNT
+        elif "نام انبار" in base and SALES_STORE not in d.columns:
+            rename[c] = SALES_STORE
+        elif "کد انبار" in base and SALES_STORE_CODE not in d.columns:
+            rename[c] = SALES_STORE_CODE
+    if rename:
+        d = d.rename(columns=rename)
+    missing = [c for c in (SALES_BARCODE, SALES_QTY, SALES_AMOUNT, SALES_STORE)
+               if c not in d.columns]
     if missing:
-        raise ValueError(
-            f"ستون‌های لازم پیدا نشد: {'، '.join(missing)}\n"
-            f"ستون‌های موجود: {'، '.join(s.columns.astype(str).tolist())}"
-        )
-    s[SALES_BARCODE] = clean_barcode(s[SALES_BARCODE])
-    s[SALES_STORE] = normalize_name(s[SALES_STORE])
-    s[SALES_QTY] = to_number(s[SALES_QTY])
-    s[SALES_AMOUNT] = to_number(s[SALES_AMOUNT])
-    return s
+        raise ValueError(f"ستون‌های فروش پیدا نشد: {'، '.join(missing)}")
+    d[SALES_BARCODE] = clean_barcode(d[SALES_BARCODE])
+    d[SALES_STORE] = normalize_name(d[SALES_STORE])
+    d[SALES_QTY] = to_number(d[SALES_QTY])
+    d[SALES_AMOUNT] = to_number(d[SALES_AMOUNT])
+    if SALES_STORE_CODE in d.columns:
+        d[SALES_STORE_CODE] = d[SALES_STORE_CODE].astype(str).str.strip().str.upper()
+    return d.reset_index(drop=True)
+
+
+def _prep_pq(d, default_shift="صبح"):
+    d = d.copy()
+    d.columns = d.columns.astype(str).str.strip()
+    for drop_col in ("کد شعبه .1", "کد شعبه.1", "Index", "Index.1"):
+        if drop_col in d.columns:
+            d = d.drop(columns=[drop_col])
+    required = [BR, BC, NM, QTY, VAL]
+    missing = [c for c in required if c not in d.columns]
+    if missing:
+        raise ValueError(f"ستون‌های لازم pq پیدا نشد: {'، '.join(missing)}")
+    d = remove_totals(d)
+    d = remove_invalid_rows(d)
+    d[BC] = clean_barcode(d[BC])
+    d[BR] = normalize_name(d[BR])
+    if BCODE in d.columns:
+        d[BCODE] = d[BCODE].astype(str).str.strip().str.upper()
+    else:
+        d[BCODE] = ""
+    d[NM] = d[NM].fillna("").astype(str).str.strip()
+    d[SUP] = (normalize_name(d[SUP]).replace("", "نامشخص")
+              if SUP in d.columns else "نامشخص")
+    d[QTY] = to_number(d[QTY])
+    d[VAL] = to_number(d[VAL])
+    if SHIFT not in d.columns:
+        d[SHIFT] = default_shift
+    else:
+        d[SHIFT] = d[SHIFT].astype(str).str.strip().replace({"nan": default_shift})
+    if ROW_NUM in d.columns:
+        try:
+            d[ROW_NUM] = to_number(d[ROW_NUM]).astype("int64")
+        except Exception:
+            pass
+    return d.reset_index(drop=True)
+
+
+def _prep_summary60(d):
+    d = d.copy()
+    d.columns = d.columns.astype(str).str.strip()
+    col = {}
+    for c in d.columns:
+        base = c.replace(".1", "").replace(".2", "").strip()
+        low = base.lower()
+        if "کد شعبه" in base and "code" not in col:
+            col["code"] = c
+        elif "نام شعبه" in base and "branch" not in col:
+            col["branch"] = c
+        elif base == "سوپروایزر" and "sup" not in col:
+            col["sup"] = c
+        elif ("ریالی اقلام راکد" in base or "موجودی ریالی" in base) and "val" not in col:
+            col["val"] = c
+        elif "تعدادی اقلام راکد" in base and "qty" not in col:
+            col["qty"] = c
+        elif ("درصد راکد13" in base or "درصد راکد 13" in base) and "pct_old" not in col:
+            col["pct_old"] = c
+        elif ("درصد راکد15" in base or "درصد راکد 15" in base) and "pct_new" not in col:
+            col["pct_new"] = c
+        elif ("افت/ رشد درصدی" in base or "افت / رشد درصدی" in base
+              or "افت/رشد درصدی" in base):
+            col["diff_pct"] = c
+        elif low in ("افت / رشد", "افت/ رشد", "افت /رشد", "افت/رشد"):
+            col["diff_txt"] = c
+        elif "نسبت موجودی اقلام راکد" in base and "ratio" not in col:
+            col["ratio"] = c
+        elif "Inventory Amount" in base and "inv" not in col:
+            col["inv"] = c
+    out = pd.DataFrame()
+    if col.get("branch"):
+        out[BR] = normalize_name(d[col["branch"]])
+    if col.get("code"):
+        out[BCODE] = d[col["code"]].astype(str).str.strip().str.upper()
+    if col.get("sup"):
+        out[SUP] = normalize_name(d[col["sup"]]).replace("", "نامشخص")
+    if col.get("val"):
+        out[VAL] = to_number(d[col["val"]])
+    if col.get("qty"):
+        out[QTY] = to_number(d[col["qty"]])
+    if col.get("pct_old"):
+        out[S60_PCT_OLD] = parse_percent(d[col["pct_old"]])
+    if col.get("pct_new"):
+        out[S60_PCT_NEW] = parse_percent(d[col["pct_new"]])
+    if col.get("diff_pct"):
+        out[S60_DIFF_PCT] = parse_percent(d[col["diff_pct"]])
+    if col.get("diff_txt"):
+        out[S60_DIFF_TXT] = d[col["diff_txt"]].astype(str).str.strip()
+    if col.get("ratio"):
+        out[S60_RATIO] = parse_percent(d[col["ratio"]])
+    if col.get("inv"):
+        out[S60_INV_AMOUNT] = to_number(d[col["inv"]])
+    out = remove_totals(out, BR)
+    return out.reset_index(drop=True)
 
 
 def _mtime(path):
@@ -439,9 +586,50 @@ def _mtime(path):
         return 0
 
 
-@st.cache_data(show_spinner="در حال بارگذاری داده‌ها…")
-def load_raaked(mtime):
-    return parse_raaked(RAAKED_FILE)
+@st.cache_data(show_spinner="در حال بارگذاری داده‌ها…", max_entries=4)
+def load_all(file_path, mtime):
+    out = {"d60": None, "d45": None, "pq45": None, "pq60": None,
+           "summary60": None, "sales": None, "sheets": []}
+    if not Path(file_path).exists():
+        return out
+    try:
+        xls = pd.ExcelFile(file_path)
+    except Exception:
+        return out
+    out["sheets"] = list(xls.sheet_names)
+    try:
+        s60 = find_sheet_exact(xls, SHEET_TBL60)
+        s45 = find_sheet_exact(xls, SHEET_TBL45)
+        if s60 and s45:
+            out["d60"] = _prep_raaked(pd.read_excel(xls, sheet_name=s60))
+            out["d45"] = _prep_raaked(pd.read_excel(xls, sheet_name=s45))
+    except Exception as e:
+        st.warning(f"⚠️ خطا در tbl60/tbl45: {e}")
+    try:
+        s = find_sheet_exact(xls, SHEET_PQ45)
+        if s:
+            out["pq45"] = _prep_pq(pd.read_excel(xls, sheet_name=s), "صبح")
+    except Exception as e:
+        st.warning(f"⚠️ خطا در pq45: {e}")
+    try:
+        s = find_sheet_exact(xls, SHEET_PQ60)
+        if s:
+            out["pq60"] = _prep_pq(pd.read_excel(xls, sheet_name=s), "عصر")
+    except Exception as e:
+        st.warning(f"⚠️ خطا در pq60: {e}")
+    try:
+        s = find_sheet_exact(xls, SHEET_SUMMARY60)
+        if s:
+            out["summary60"] = _prep_summary60(pd.read_excel(xls, sheet_name=s))
+    except Exception as e:
+        st.warning(f"⚠️ خطا در خلاصه ۶۰ روزه: {e}")
+    try:
+        s = find_sheet_exact(xls, SHEET_SALES)
+        if s:
+            out["sales"] = _prep_sales(pd.read_excel(xls, sheet_name=s))
+    except Exception:
+        pass
+    return out
 
 
 @st.cache_data(show_spinner=False)
@@ -449,7 +637,8 @@ def load_sales(mtime):
     if not SALES_FILE.exists():
         return None
     try:
-        return parse_sales(SALES_FILE)
+        xls = pd.ExcelFile(SALES_FILE)
+        return _prep_sales(pd.read_excel(xls, sheet_name=0))
     except Exception:
         return None
 
@@ -487,11 +676,7 @@ def detect_target_columns(t):
         "target": next((c for c in cols if c.startswith("تارگت") and "تغییرات" not in c), None),
         "achievement": next((c for c in cols if "تحقق" in c), None),
         "change": next((c for c in cols if c.startswith("تغییرات") and "تارگت" not in c), None),
-    }
-
-
-# ================== SQLite ==================
-def _connect():
+    }def _connect():
     return closing(sqlite3.connect(HISTORY_DB))
 
 
@@ -604,7 +789,6 @@ def get_history_comparison(date1, date2, kind="60"):
 init_db()
 
 
-# ================== فایل‌ها ==================
 def _atomic_write(path, data):
     tmp = Path(str(path) + ".tmp")
     tmp.write_bytes(data)
@@ -668,14 +852,13 @@ def process_raaked_upload(data, date_str, note):
 
 
 def process_sales_upload(data, date_str, note):
-    s = parse_sales(io.BytesIO(data))
+    s = _prep_sales(pd.read_excel(io.BytesIO(data), sheet_name=0))
     rows = save_sales_history(s, date_str, note)
     _backup(SALES_FILE)
     _atomic_write(SALES_FILE, data)
     return rows, data_quality_report(pd.DataFrame(), pd.DataFrame(), s)
 
 
-# ================== UI ==================
 def get_logo_html(size=38):
     logo_path = Path("logo.png")
     if logo_path.exists():
@@ -757,33 +940,25 @@ def _fmt_cell(v, col_name=""):
 
 
 def _badge_html(text, bg_color, icon=""):
-    """ساخت بَج رنگی جدا برای اولویت."""
     label = f"{icon} {text}".strip()
     return f'<div class="mcard-badge" style="background:{bg_color};">{label}</div>'
 
 
 def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
                         priority_cols=None, badge_col=None):
-    """نمایش کارتی در موبایل. اگر badge_col داده شود، به‌عنوان بَج رنگی بالای کارت نمایش داده می‌شود."""
     if df.empty:
         st.info("ردیفی برای نمایش وجود ندارد.")
         return
-
     if priority_cols is None:
         priority_cols = [c for c in df.columns if c not in (BR, SUP)]
-
     available_cols = [c for c in priority_cols if c in df.columns and c != badge_col]
     display = df.head(max_rows)
-
     for _, row in display.iterrows():
         title = _fmt_cell(row.get(title_col, "")) if title_col in df.columns else ""
         sub = _fmt_cell(row.get(sub_col, "")) if sub_col in df.columns else ""
-
         if not title:
             title = sub
             sub = ""
-
-        # بَج اولویت (اگر ستونش داده شده باشد)
         badge_html = ""
         if badge_col and badge_col in df.columns:
             badge_val = str(row.get(badge_col, ""))
@@ -793,7 +968,6 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
                 badge_html = _badge_html("پیگیری", "#f59e0b", "🟡")
             elif "عادی" in badge_val:
                 badge_html = _badge_html("عادی", CHART_PIE_GREEN, "🟢")
-
         rows_html = ""
         for c in available_cols:
             v = row.get(c)
@@ -801,15 +975,12 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
                 continue
             val_str = _fmt_cell(v, c)
             rows_html += f'<div class="mcard-row"><span>{c}</span><b>{val_str}</b></div>'
-
         sub_html = f'<div class="mcard-sup">👤 {sub}</div>' if sub else ""
-
         icon = "🏪"
         if "کالا" in title_col:
             icon = "📦"
         elif "سوپروایزر" in title_col or "سرپرست" in title_col:
             icon = "👤"
-
         st_md(f"""
         <div class="mcard">
             {badge_html}
@@ -818,52 +989,8 @@ def render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
             {rows_html}
         </div>
         """)
-
     if len(df) > max_rows:
         st.caption(f"🔸 نمایش {max_rows} ردیف اول از {len(df):,} — برای دیدن همه، CSV را دانلود کن.")
-
-
-def show_table(df, key, hide_supervisor=False, search=True, placeholder="جستجو...",
-               priority_cols=None, title_col=NM, badge_col=None):
-    view = df.copy()
-    if hide_supervisor and SUP in view.columns:
-        view = view.drop(columns=[SUP])
-
-    if search and not view.empty:
-        view = filter_by_search(view, key, placeholder)
-
-    if view.empty:
-        st.info("ردیفی برای نمایش وجود ندارد.")
-        return
-
-    if is_mobile:
-        render_mobile_cards(view, max_rows=50, title_col=title_col,
-                            sub_col=SUP if SUP in view.columns else None,
-                            priority_cols=priority_cols, badge_col=badge_col)
-    else:
-        st.dataframe(view, use_container_width=True, hide_index=True,
-                     column_config=column_config(view))
-
-    st.download_button("⬇️ دانلود CSV", view.to_csv(index=False).encode("utf-8-sig"),
-                       f"{key}.csv", "text/csv", key=f"dl_{key}")
-
-
-def show_summary(df, key):
-    if df.empty:
-        st.info("داده‌ای برای نمایش وجود ندارد.")
-        return
-
-    if is_mobile:
-        priority = [BR, SUP, "راکد ۶۰ روزه", "راکد ۴۵ روزه",
-                    "تعداد قلم", "فروش (ریال)"]
-        render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
-                            priority_cols=priority)
-    else:
-        st.dataframe(df, use_container_width=True, hide_index=True,
-                     column_config=summary_config(df))
-
-    st.download_button("⬇️ دانلود CSV", df.to_csv(index=False).encode("utf-8-sig"),
-                       f"{key}.csv", "text/csv", key=f"dl_{key}")
 
 
 def filter_by_search(view, key, placeholder):
@@ -884,41 +1011,6 @@ def filter_by_search(view, key, placeholder):
         st.caption(f"🔸 {len(filtered):,} ردیف پیدا شد (از {len(view):,})")
         return filtered
     return view
-
-
-# ================== جداول ==================
-def build_sales_map(sales_df):
-    if sales_df is None or sales_df.empty:
-        return None
-    return (sales_df.groupby([SALES_STORE, SALES_BARCODE])
-            .agg({SALES_QTY: "sum", SALES_AMOUNT: "sum"})
-            .reset_index()
-            .rename(columns={SALES_STORE: BR, SALES_BARCODE: BC,
-                             SALES_QTY: S_QTY, SALES_AMOUNT: S_AMT}))
-
-
-@st.cache_data(show_spinner=False, max_entries=32)
-def attach_sales(df_raaked, sales_df):
-    if df_raaked is None or df_raaked.empty:
-        return pd.DataFrame(columns=[BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP])
-    base = (df_raaked.groupby([BR, BC], as_index=False)
-            .agg(**{NM: (NM, "first"), QTY: (QTY, "sum"),
-                    VAL: (VAL, "sum"), SUP: (SUP, "first")}))
-    sm = build_sales_map(sales_df)
-    if sm is not None:
-        out = base.merge(sm, on=[BR, BC], how="left")
-    else:
-        out = base.copy()
-        out[S_QTY] = 0.0
-        out[S_AMT] = 0.0
-    out[S_QTY] = out[S_QTY].fillna(0)
-    out[S_AMT] = out[S_AMT].fillna(0)
-    unit = (out[VAL] / out[QTY]).where(out[QTY] > 0, 0)
-    out[S_REL] = (np.minimum(out[S_QTY].clip(lower=0), out[QTY]) * unit).round(0).astype("int64")
-    out[S_QTY] = smart_int(out[S_QTY])
-    out[S_AMT] = out[S_AMT].round(0).astype("int64")
-    cols = [BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP]
-    return out[cols].sort_values(VAL, ascending=False).reset_index(drop=True)
 
 
 def calc_width(df, col, is_numeric=False, is_percent=False):
@@ -981,6 +1073,43 @@ def summary_config(df):
     return cfg
 
 
+def show_table(df, key, hide_supervisor=False, search=True, placeholder="جستجو...",
+               priority_cols=None, title_col=NM, badge_col=None):
+    view = df.copy()
+    if hide_supervisor and SUP in view.columns:
+        view = view.drop(columns=[SUP])
+    if search and not view.empty:
+        view = filter_by_search(view, key, placeholder)
+    if view.empty:
+        st.info("ردیفی برای نمایش وجود ندارد.")
+        return
+    if is_mobile:
+        render_mobile_cards(view, max_rows=50, title_col=title_col,
+                            sub_col=SUP if SUP in view.columns else None,
+                            priority_cols=priority_cols, badge_col=badge_col)
+    else:
+        st.dataframe(view, use_container_width=True, hide_index=True,
+                     column_config=column_config(view))
+    st.download_button("⬇️ دانلود CSV", view.to_csv(index=False).encode("utf-8-sig"),
+                       f"{key}.csv", "text/csv", key=f"dl_{key}")
+
+
+def show_summary(df, key):
+    if df.empty:
+        st.info("داده‌ای برای نمایش وجود ندارد.")
+        return
+    if is_mobile:
+        priority = [BR, SUP, "راکد ۶۰ روزه", "راکد ۴۵ روزه",
+                    "تعداد قلم", "فروش (ریال)"]
+        render_mobile_cards(df, max_rows=30, title_col=BR, sub_col=SUP,
+                            priority_cols=priority)
+    else:
+        st.dataframe(df, use_container_width=True, hide_index=True,
+                     column_config=summary_config(df))
+    st.download_button("⬇️ دانلود CSV", df.to_csv(index=False).encode("utf-8-sig"),
+                       f"{key}.csv", "text/csv", key=f"dl_{key}")
+
+
 def export_to_excel(dfs: dict, filename="report.xlsx"):
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
@@ -991,6 +1120,40 @@ def export_to_excel(dfs: dict, filename="report.xlsx"):
             df.to_excel(writer, sheet_name=safe, index=False)
     buf.seek(0)
     return buf.getvalue()
+
+
+def build_sales_map(sales_df):
+    if sales_df is None or sales_df.empty:
+        return None
+    return (sales_df.groupby([SALES_STORE, SALES_BARCODE])
+            .agg({SALES_QTY: "sum", SALES_AMOUNT: "sum"})
+            .reset_index()
+            .rename(columns={SALES_STORE: BR, SALES_BARCODE: BC,
+                             SALES_QTY: S_QTY, SALES_AMOUNT: S_AMT}))
+
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def attach_sales(df_raaked, sales_df):
+    if df_raaked is None or df_raaked.empty:
+        return pd.DataFrame(columns=[BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP])
+    base = (df_raaked.groupby([BR, BC], as_index=False)
+            .agg(**{NM: (NM, "first"), QTY: (QTY, "sum"),
+                    VAL: (VAL, "sum"), SUP: (SUP, "first")}))
+    sm = build_sales_map(sales_df)
+    if sm is not None:
+        out = base.merge(sm, on=[BR, BC], how="left")
+    else:
+        out = base.copy()
+        out[S_QTY] = 0.0
+        out[S_AMT] = 0.0
+    out[S_QTY] = out[S_QTY].fillna(0)
+    out[S_AMT] = out[S_AMT].fillna(0)
+    unit = (out[VAL] / out[QTY]).where(out[QTY] > 0, 0)
+    out[S_REL] = (np.minimum(out[S_QTY].clip(lower=0), out[QTY]) * unit).round(0).astype("int64")
+    out[S_QTY] = smart_int(out[S_QTY])
+    out[S_AMT] = out[S_AMT].round(0).astype("int64")
+    cols = [BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP]
+    return out[cols].sort_values(VAL, ascending=False).reset_index(drop=True)
 
 
 # ================== KPI ها ==================
@@ -1066,7 +1229,6 @@ def render_matched(f60, f45, sales_df, key_suffix="", hide_sup=False):
                            priority_cols=[BR, QTY, VAL, S_QTY, S_AMT, S_REL])
 
 
-# ================== مرکز اقدام ==================
 def render_action_center(df60, sales_df=None, limit=15, key="ac"):
     st.markdown("### 🚨 مرکز اقدام فوری")
     if df60.empty:
@@ -1121,7 +1283,6 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
                        f"action_center_{key}.csv", "text/csv", key=f"dl_ac_{key}")
 
 
-# ================== خلاصه شعب و سرپرست‌ها ==================
 def _finish_summary(out, int_cols):
     for c in int_cols:
         if c in out.columns:
@@ -1185,7 +1346,6 @@ def supervisor_summary(df60, df45, sales_df=None):
     return out.sort_values("راکد ۶۰ روزه", ascending=False).reset_index(drop=True)
 
 
-# ================== Cash + ABC + DIO ==================
 def render_cash_and_abc(df60, sales_df=None):
     st.markdown("### 💰 پول خوابیده در انبار")
     rate = st.slider("نرخ هزینه نگهداری ماهانه (٪)", 0.0, 10.0, HOLD_RATE_DEFAULT, 0.5,
@@ -1271,7 +1431,6 @@ def render_cash_and_abc(df60, sales_df=None):
                            "abc.csv", "text/csv", key="dl_abc")
 
 
-# ================== نمودارها ==================
 def render_charts(df60, df_target):
     st.markdown("### 📊 نمودارهای تحلیلی")
     branch_val = df60.groupby(BR)[VAL].sum().reset_index().sort_values(VAL, ascending=False)
@@ -1316,7 +1475,6 @@ def render_charts(df60, df_target):
             st.plotly_chart(fig2, use_container_width=True)
 
 
-# ================== روند تاریخچه ==================
 def render_history_trend():
     st.markdown("### 🕰️ روند در آپدیت‌ها")
     try:
@@ -1454,6 +1612,204 @@ def render_comparison():
             st.dataframe(disp, use_container_width=True, hide_index=True)
 
 
+# ================== چک‌لیست شیفت ==================
+def render_shift_checklist(pq45, pq60, key_suffix=""):
+    st.markdown("### 📋 چک‌لیست پیگیری شیفت")
+    st.caption("۱۰ قلم راکد با بالاترین ارزش ریالی هر شعبه — مخصوص پیگیری سرپرست")
+    if (pq45 is None or pq45.empty) and (pq60 is None or pq60.empty):
+        st.info("داده‌های شیفت (pq45 / pq60) در فایل موجود نیست.")
+        return
+    with st.expander("🎛 فیلترها", expanded=False):
+        sup_list = []
+        for df in (pq45, pq60):
+            if df is not None and not df.empty and SUP in df.columns:
+                sup_list += df[SUP].dropna().unique().tolist()
+        sup_list = sorted(set(sup_list))
+        selected_sup = st.selectbox("سرپرست", ["همه"] + sup_list,
+                                    key=f"sh_sup_{key_suffix}")
+        search_q = st.text_input("🔍 جستجو (نام کالا / بارکد / شعبه)",
+                                 key=f"sh_search_{key_suffix}",
+                                 placeholder="مثلاً: برنج یا 6260...")
+
+    def apply_filters(df):
+        if df is None or df.empty:
+            return df
+        x = df.copy()
+        if selected_sup != "همه" and SUP in x.columns:
+            x = x[x[SUP] == selected_sup]
+        if search_q and search_q.strip():
+            terms = [normalize_query(t) for t in search_q.split() if t.strip()]
+            mask = pd.Series(True, index=x.index)
+            for term in terms:
+                m = pd.Series(False, index=x.index)
+                for c in x.columns:
+                    txt = (x[c].astype(str).str.lower()
+                           .str.translate(FA_DIGITS)
+                           .str.replace("ي", "ی", regex=False)
+                           .str.replace("ك", "ک", regex=False))
+                    m |= txt.str.contains(term, na=False, regex=False)
+                mask &= m
+            x = x[mask]
+        return x.reset_index(drop=True)
+
+    f45 = apply_filters(pq45)
+    f60 = apply_filters(pq60)
+    n45 = 0 if f45 is None else len(f45)
+    n60 = 0 if f60 is None else len(f60)
+    tabs = st.tabs([f"🌅 صبح ({n45})", f"🌙 عصر ({n60})"])
+
+    for tab, df, shift_name, k in ((tabs[0], f45, "صبح", "morning"),
+                                    (tabs[1], f60, "عصر", "evening")):
+        with tab:
+            if df is None or df.empty:
+                st.info(f"داده‌ای برای شیفت {shift_name} وجود ندارد.")
+                continue
+            kpi_cols = st.columns(3)
+            kpi_cols[0].metric("تعداد اقلام", f"{len(df):,}")
+            kpi_cols[1].metric("ارزش راکد", money(df[VAL].sum(), short=is_mobile))
+            kpi_cols[2].metric("تعداد شعبه", f"{df[BR].nunique():,}")
+            st.divider()
+            if is_mobile:
+                render_mobile_cards(
+                    df, max_rows=100,
+                    title_col=NM, sub_col=BR,
+                    priority_cols=[SUP, BC, QTY, VAL]
+                )
+            else:
+                view = df[[c for c in [BR, BCODE, BC, NM, QTY, VAL, SUP]
+                           if c in df.columns]]
+                st.dataframe(view, use_container_width=True, hide_index=True,
+                             column_config=column_config(view))
+            st.download_button(
+                f"⬇️ دانلود چک‌لیست {shift_name}",
+                df.to_csv(index=False).encode("utf-8-sig"),
+                f"shift_{k}_{key_suffix}.csv", "text/csv",
+                key=f"dl_shift_{k}_{key_suffix}"
+            )
+
+
+# ================== روند و مقایسه ==================
+def render_trend_comparison(summary60, key_suffix=""):
+    st.markdown("### 📈 روند و مقایسه شعب")
+    if summary60 is None or summary60.empty:
+        st.info("شیت «۶۰ روزه» در فایل موجود نیست یا خالی است.")
+        return
+    df = summary60.copy()
+    has_old = S60_PCT_OLD in df.columns
+    has_new = S60_PCT_NEW in df.columns
+    has_diff = S60_DIFF_PCT in df.columns
+    if not (has_old and has_new):
+        st.warning("ستون‌های درصد راکد در شیت خلاصه پیدا نشد.")
+        return
+    mean_old = df[S60_PCT_OLD].mean()
+    mean_new = df[S60_PCT_NEW].mean()
+    diff_mean = mean_new - mean_old
+    improved = int((df[S60_PCT_NEW] < df[S60_PCT_OLD]).sum())
+    worsened = int((df[S60_PCT_NEW] > df[S60_PCT_OLD]).sum())
+    unchanged = len(df) - improved - worsened
+    if is_mobile:
+        st.metric("میانگین درصد قبل", f"{mean_old:.2f}%")
+        st.metric("میانگین درصد فعلی", f"{mean_new:.2f}%",
+                  delta=f"{diff_mean:+.2f}%",
+                  delta_color="inverse" if diff_mean > 0 else "normal")
+        st.metric("🟢 بهبود", f"{improved:,} شعبه")
+        st.metric("🔴 افت", f"{worsened:,} شعبه")
+        st.metric("⚪ بدون تغییر", f"{unchanged:,} شعبه")
+    else:
+        metric_row([
+            ("میانگین قبل", f"{mean_old:.2f}%"),
+            ("میانگین فعلی", f"{mean_new:.2f}%",
+             {"delta": f"{diff_mean:+.2f}%",
+              "delta_color": "inverse" if diff_mean > 0 else "normal"}),
+            ("🟢 بهبود", f"{improved:,}"),
+            ("🔴 افت", f"{worsened:,}"),
+            ("⚪ بدون تغییر", f"{unchanged:,}"),
+        ])
+    st.divider()
+    st.markdown("#### 📊 مقایسه درصد راکد قبل و بعد")
+    chart_df = df.dropna(subset=[S60_PCT_OLD, S60_PCT_NEW]).copy()
+    chart_df["_change"] = chart_df[S60_PCT_NEW] - chart_df[S60_PCT_OLD]
+    chart_df = chart_df.reindex(
+        chart_df["_change"].abs().sort_values(ascending=False).index
+    ).head(15)
+    if not chart_df.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            name="قبل", x=chart_df[BR], y=chart_df[S60_PCT_OLD],
+            marker_color=CHART_NEUTRAL,
+            text=chart_df[S60_PCT_OLD].apply(lambda v: f"{v:.2f}%"),
+            textposition="outside",
+            textfont=dict(color=CHART_TEXT, size=9)
+        ))
+        fig.add_trace(go.Bar(
+            name="فعلی", x=chart_df[BR], y=chart_df[S60_PCT_NEW],
+            marker_color=CHART_MAIN,
+            text=chart_df[S60_PCT_NEW].apply(lambda v: f"{v:.2f}%"),
+            textposition="outside",
+            textfont=dict(color=CHART_TEXT, size=9)
+        ))
+        fig.update_layout(
+            barmode="group",
+            height=450 if is_mobile else 500,
+            xaxis_tickangle=-45,
+            title="۱۵ شعبه با بیشترین تغییر"
+        )
+        st.plotly_chart(plotly_style(fig, show_legend_bg=True),
+                        use_container_width=True)
+    st.divider()
+    st.markdown("#### 🏆 رتبه‌بندی افت / رشد")
+    if has_diff:
+        df = df.sort_values(S60_DIFF_PCT, ascending=True).reset_index(drop=True)
+    else:
+        df["_diff"] = df[S60_PCT_NEW] - df[S60_PCT_OLD]
+        df = df.sort_values("_diff", ascending=True).reset_index(drop=True)
+        df[S60_DIFF_PCT] = df["_diff"]
+    q = st.text_input("🔍 جستجو", key=f"trend_search_{key_suffix}",
+                      placeholder="نام شعبه یا سرپرست")
+    view = df.copy()
+    if q and q.strip():
+        qn = normalize_query(q)
+        mask = view.astype(str).apply(
+            lambda col: col.str.lower().str.contains(qn, na=False, regex=False)
+        ).any(axis=1)
+        view = view[mask]
+        st.caption(f"🔸 {len(view):,} ردیف")
+    if is_mobile:
+        for _, r in view.head(50).iterrows():
+            diff = r.get(S60_DIFF_PCT, 0)
+            if pd.isna(diff):
+                diff = 0
+            if diff < 0:
+                bg, icon, label = CHART_PIE_GREEN, "🟢", "بهبود"
+            elif diff > 0:
+                bg, icon, label = OK_RED, "🔴", "افت"
+            else:
+                bg, icon, label = CHART_NEUTRAL, "⚪", "بدون تغییر"
+            st_md(f"""
+            <div class="mcard" style="border-right-color: {bg};">
+                <div class="mcard-badge" style="background:{bg};">{icon} {label} {diff:+.2f}%</div>
+                <div class="mcard-title">🏪 {r.get(BR, '')}</div>
+                <div class="mcard-sup">👤 {r.get(SUP, '—')}</div>
+                <div class="mcard-row"><span>قبل</span><b>{r.get(S60_PCT_OLD, 0):.2f}%</b></div>
+                <div class="mcard-row"><span>فعلی</span><b>{r.get(S60_PCT_NEW, 0):.2f}%</b></div>
+                <div class="mcard-row"><span>ارزش راکد</span><b>{money(r.get(VAL, 0), short=True)}</b></div>
+            </div>
+            """)
+    else:
+        display_cols = [c for c in [BR, BCODE, SUP, VAL,
+                                     S60_PCT_OLD, S60_PCT_NEW,
+                                     S60_DIFF_PCT, S60_DIFF_TXT]
+                        if c in view.columns]
+        st.dataframe(view[display_cols], use_container_width=True,
+                     hide_index=True)
+    st.download_button(
+        "⬇️ دانلود روند",
+        view.to_csv(index=False).encode("utf-8-sig"),
+        f"trend_{key_suffix}.csv", "text/csv",
+        key=f"dl_trend_{key_suffix}"
+    )
+
+
 # ================== آپلود ==================
 def get_upload_password():
     try:
@@ -1488,6 +1844,8 @@ def render_upload():
         st.success(flash)
 
     st.markdown("### 📤 آپلود فایل‌های جدید")
+    st.warning("⚠️ **قبل از آپلود**، در اکسل `Ctrl+Alt+F5` بزنید (Refresh All) "
+               "و فایل را ذخیره کنید. در غیر این‌صورت داده قدیمی آپلود می‌شود.")
     st.info("فایل قبل از جایگزینی اعتبارسنجی می‌شود و از نسخه قبلی بک‌آپ گرفته می‌شود.")
 
     picked = st.date_input("📅 تاریخ این آپدیت",
@@ -1803,13 +2161,30 @@ if page not in VALID_PAGES:
 
 # ================== خواندن داده ==================
 data_error = None
+all_data = {"d60": None, "d45": None, "pq45": None, "pq60": None,
+            "summary60": None, "sales": None}
 try:
-    df60, df45 = load_raaked(_mtime(RAAKED_FILE))
+    all_data = load_all(RAAKED_FILE, _mtime(RAAKED_FILE))
 except Exception as e:
     data_error = str(e)
-    empty = pd.DataFrame(columns=[BR, BC, NM, QTY, VAL, SUP])
-    df60, df45 = empty.copy(), empty.copy()
-df_sales = load_sales(_mtime(SALES_FILE))
+
+df60 = all_data.get("d60")
+df45 = all_data.get("d45")
+pq45 = all_data.get("pq45")
+pq60 = all_data.get("pq60")
+summary60 = all_data.get("summary60")
+
+if df60 is None:
+    df60 = pd.DataFrame(columns=[BR, BCODE, BC, NM, QTY, VAL, SUP])
+if df45 is None:
+    df45 = pd.DataFrame(columns=[BR, BCODE, BC, NM, QTY, VAL, SUP])
+
+df_sales = None
+if SALES_FILE.exists():
+    df_sales = load_sales(_mtime(SALES_FILE))
+if (df_sales is None or df_sales.empty) and all_data.get("sales") is not None:
+    df_sales = all_data.get("sales")
+
 df_target = load_target(_mtime(TARGET_FILE))
 
 if data_error and page != "upload":
@@ -1840,11 +2215,12 @@ CARDS = [
     ("store", "🏪", "عملکرد فروشگاه‌ها", "تحلیل هر شعبه", True),
     ("supervisor", "👤", "عملکرد سوپروایزرها", "عملکرد هر سرپرست", True),
     ("target", "🎯", "تارگت و روند", "اهداف و رتبه‌بندی", False),
+    ("shift", "📋", "چک‌لیست شیفت", "پیگیری صبح و عصر", True),
+    ("trend", "📈", "روند و مقایسه", "افت و رشد شعب", True),
     ("analytics", "💰", "تحلیل پیشرفته", "ABC و نمودارها", False),
-    ("upload", "📤", "آپلود و تاریخچه", "فایل جدید", True),
+    ("upload", "📤", "آپلود و تاریخچه", "فایل جدید", False),
 ]
 
-# ================== صفحه ورودی ==================
 if page == "home":
     render_header("فروشگاه‌های زنجیره‌ای افق کوروش")
     show_last_update_badge()
@@ -1867,7 +2243,6 @@ if page == "home":
 
     st_md('<div class="footer-text">ساخته شده توسط <b>شاهین باقری</b></div>')
 
-# ================== دیستریکت ==================
 elif page == "district":
     back_link()
     render_header("عملکرد کلی دیستریکت")
@@ -1907,7 +2282,6 @@ elif page == "district":
     st.subheader("✅ کالاهای راکدی که فروش رفتند")
     render_matched(df60, df45, df_sales, key_suffix="district")
 
-# ================== فروشگاه ==================
 elif page == "store":
     back_link()
     render_header("عملکرد فروشگاه‌ها")
@@ -1943,7 +2317,6 @@ elif page == "store":
     with tabs[1]:
         render_target(branch_target, key_suffix=f"branch_{selected_branch}")
 
-# ================== سوپروایزر ==================
 elif page == "supervisor":
     back_link()
     render_header("عملکرد سوپروایزرها")
@@ -1979,13 +2352,11 @@ elif page == "supervisor":
     with tabs[1]:
         render_target(sup_target, key_suffix=f"sup_{selected_sup}")
 
-# ================== تارگت ==================
 elif page == "target":
     back_link()
     render_header("تارگت و روند کل دیستریکت")
     render_target(df_target, key_suffix="district")
 
-# ================== تحلیل پیشرفته ==================
 elif page == "analytics":
     back_link()
     render_header("تحلیل پیشرفته")
@@ -2001,7 +2372,18 @@ elif page == "analytics":
     st.divider()
     render_action_center(df60, df_sales, key="analytics")
 
-# ================== آپلود ==================
+elif page == "shift":
+    back_link()
+    render_header("چک‌لیست شیفت صبح و عصر")
+    show_last_update_badge()
+    render_shift_checklist(pq45, pq60, key_suffix="main")
+
+elif page == "trend":
+    back_link()
+    render_header("روند و مقایسه شعب")
+    show_last_update_badge()
+    render_trend_comparison(summary60, key_suffix="main")
+
 elif page == "upload":
     back_link()
     render_header("آپلود فایل و تاریخچه")
