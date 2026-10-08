@@ -13,3 +13,6 @@ __pycache__/
 *.pkl
 config.ini
 
+
+contacts.json
+recipients.json
