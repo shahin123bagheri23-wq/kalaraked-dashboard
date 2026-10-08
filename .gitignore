@@ -9,13 +9,9 @@ __pycache__/
 *.pyc
 .excel_cache/
 *.pkl
-.excel_cache/
-*.pkl
 config.ini
 
 
 contacts.json
 recipients.json
 
-contacts.json
-recipients.json
