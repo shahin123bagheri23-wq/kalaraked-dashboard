@@ -142,15 +142,27 @@ def _has_columns(path, required):
 
 def _discover_input_files():
     global RAAKED_FILE, SALES_FILE, TARGET_FILE
-    candidates = [
-        DATA_DIR / "1405-07-15 projraked.xlsx",
-        Path("1405-07-15 projraked.xlsx"),
-        Path.cwd() / "1405-07-15 projraked.xlsx",
-    ]
-    one = next((c for c in candidates if c.exists()), candidates[0])
-    RAAKED_FILE = one
-    SALES_FILE = one
-    TARGET_FILE = one
+    roots = [DATA_DIR]
+    try:
+        roots += [Path(__file__).resolve().parent]
+    except Exception:
+        pass
+    roots += [Path.cwd()]
+
+    def first_existing(name, fallback):
+        for root in roots:
+            try:
+                candidate = root / name
+                if candidate.exists():
+                    return candidate
+            except Exception:
+                pass
+        return fallback
+
+    # هر فایل باید مستقل کشف شود؛ قبلاً هر سه مسیر به فایل راکد اشاره می‌کردند.
+    RAAKED_FILE = first_existing(RAAKED_NAME, DATA_DIR / RAAKED_NAME)
+    SALES_FILE = first_existing(SALES_NAME, DATA_DIR / SALES_NAME)
+    TARGET_FILE = first_existing(TARGET_NAME, DATA_DIR / TARGET_NAME)
     return RAAKED_FILE, SALES_FILE, TARGET_FILE
 
 
@@ -190,7 +202,7 @@ REQUIRED_SALES = [SALES_BARCODE, SALES_QTY, SALES_AMOUNT, SALES_STORE]
 ACH_OK, ACH_WARN = 100, 80
 HOLD_RATE_DEFAULT = 2.0
 VALID_PAGES = {"home", "district", "store", "supervisor", "target",
-               "analytics", "upload", "shift", "trend", "report"}
+               "analytics", "upload", "shift", "trend", "report", "presentation"}
 
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 BARCODE_LIKE_RE = r"^\d{8,}$"
@@ -239,7 +251,7 @@ st.markdown(f"""
     }}
     .stApp {{ background-color: {BG}; }}
     .block-container {{
-        padding-top: 0.4rem; padding-bottom: 0.8rem;
+        padding-top: 0.4rem; padding-bottom: 90px;
         padding-left: 0.5rem; padding-right: 0.5rem;
         max-width: 100% !important;
     }}
@@ -252,10 +264,8 @@ st.markdown(f"""
         background-color: {INPUT_BG} !important;
         color: {TXT} !important;
     }}
-    button[kind="secondary"] {{
-        background-color: {BG2} !important;
-        color: {TXT} !important;
-    }}
+
+    /* ============ هدر ============ */
     .ok-header {{
         background: linear-gradient(135deg, {OK_RED_DARK} 0%, {OK_RED} 55%, {OK_RED_LIGHT} 100%);
         padding: 14px 16px; border-radius: 14px;
@@ -271,35 +281,126 @@ st.markdown(f"""
         box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         flex-shrink: 0;
     }}
-    a.card-link {{
-        text-decoration: none !important; display: block; margin-bottom: 12px;
-        flex: 1 1 0; min-width: 0;
+
+    /* ============ هیرو ============ */
+    .app-hero {{
+        background: linear-gradient(135deg, {OK_RED_DARK} 0%, {OK_RED} 55%, {OK_RED_LIGHT} 100%);
+        border-radius: 18px;
+        padding: 22px 20px;
+        margin-bottom: 18px;
+        color: white;
+        box-shadow: 0 8px 24px rgba(230,0,62,0.35);
+        position: relative;
+        overflow: hidden;
     }}
-    a.card-link:hover {{ text-decoration: none !important; }}
-    .home-card {{
-        background: linear-gradient(135deg, {OK_RED_DARK} 0%, {OK_RED} 100%);
-        padding: 22px 14px; border-radius: 16px; text-align: center;
-        color: white; box-shadow: 0 4px 12px rgba(230,0,62,0.3);
-        transition: transform 0.2s; cursor: pointer;
-        min-height: 130px; border: 2px solid transparent;
+    .app-hero::before {{
+        content: '';
+        position: absolute;
+        top: -50%; right: -50%;
+        width: 200%; height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+        pointer-events: none;
     }}
-    a.card-link:active .home-card {{ transform: scale(0.98); }}
-    .home-card.light {{
-        background: {LIGHT_CARD};
-        color: {LIGHT_CARD_TXT} !important;
-        border: 2px solid {OK_RED};
+    .app-hero h2 {{
+        margin: 0 0 6px 0;
+        font-size: 1.15rem;
+        color: white !important;
+        font-weight: bold;
+        position: relative;
     }}
-    .home-card.light h2 {{ color: {LIGHT_CARD_TXT} !important; }}
-    .home-card.light p {{ color: {LIGHT_CARD_TXT2} !important; }}
-    .home-card h2 {{ color: white !important; margin: 8px 0 4px 0; font-size: 0.95rem; line-height: 1.3; }}
-    .home-card p {{ color: #ffe0e8; font-size: 0.72rem; margin: 0; line-height: 1.3; }}
-    .home-card .icon {{ font-size: 2rem; }}
-    a.back-link {{
-        display: inline-block; padding: 6px 14px;
-        background: {OK_RED}; color: white !important;
-        border-radius: 8px; text-decoration: none !important;
-        font-weight: bold; font-size: 0.82rem; margin-bottom: 10px;
+    .app-hero p {{
+        margin: 0;
+        font-size: 0.82rem;
+        opacity: 0.95;
+        position: relative;
     }}
+
+    /* ============ عنوان بخش ============ */
+    .app-section-title {{
+        font-size: 0.92rem;
+        font-weight: bold;
+        color: {TXT};
+        margin: 22px 0 12px 0;
+        padding-right: 12px;
+        border-right: 4px solid {OK_RED};
+        position: relative;
+    }}
+
+    /* ============ کارت‌های اصلی (secondary buttons) ============ */
+    div[data-testid="stButton"] > button[kind="secondary"] {{
+        background: linear-gradient(180deg, #1e1e26 0%, #15151c 100%) !important;
+        border: 1px solid #2a2a30 !important;
+        border-radius: 18px !important;
+        padding: 22px 12px !important;
+        min-height: 130px !important;
+        color: {TXT} !important;
+        font-size: 0.85rem !important;
+        line-height: 1.4 !important;
+        white-space: pre-line !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+        transition: all 0.2s;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }}
+    div[data-testid="stButton"] > button[kind="secondary"]:hover {{
+        background: linear-gradient(180deg, #2a1a20 0%, #1e1218 100%) !important;
+        border-color: {OK_RED} !important;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(230,0,62,0.35);
+    }}
+    div[data-testid="stButton"] > button[kind="secondary"]:active {{
+        transform: scale(0.97);
+    }}
+    div[data-testid="stButton"] > button[kind="secondary"] p {{
+        color: {TXT} !important;
+        font-size: 0.85rem !important;
+        margin: 0 !important;
+        line-height: 1.5 !important;
+        font-weight: 500 !important;
+        white-space: pre-line !important;
+        text-align: center !important;
+    }}
+    div[data-testid="stButton"] > button[kind="secondary"] p strong {{
+        font-size: 1.6rem !important;
+        display: block !important;
+        margin-bottom: 8px !important;
+        color: {OK_RED_LIGHT} !important;
+    }}
+
+    /* ============ Bottom Nav (primary buttons) ============ */
+    div[data-testid="stButton"] > button[kind="primary"] {{
+        background: #14141a !important;
+        border: 1px solid #2a2a30 !important;
+        border-radius: 12px !important;
+        padding: 10px 6px !important;
+        min-height: 52px !important;
+        color: #8b8b95 !important;
+        font-size: 0.78rem !important;
+        font-weight: 500 !important;
+        transition: all 0.15s;
+    }}
+    div[data-testid="stButton"] > button[kind="primary"]:hover {{
+        border-color: {OK_RED_LIGHT} !important;
+        color: {OK_RED_LIGHT} !important;
+        background: #1a0f15 !important;
+    }}
+
+    /* دکمه بازگشت */
+    div[data-testid="stButton"] > button[kind="secondary"][title*="بازگشت"] {{
+        min-height: 36px !important;
+        padding: 6px 14px !important;
+        border-radius: 8px !important;
+        width: auto !important;
+        background: {OK_RED} !important;
+        color: white !important;
+        border: none !important;
+        font-weight: bold !important;
+    }}
+
+    /* ============ کارت‌های KPI ============ */
     div[data-testid="stMetric"] {{
         background: {CARD_BG}; padding: 10px; border-radius: 10px;
         margin-bottom: 6px; border-right: 4px solid {OK_RED};
@@ -307,14 +408,20 @@ st.markdown(f"""
     }}
     div[data-testid="stMetric"] label {{ color: {TXT2} !important; font-size: 0.72rem !important; }}
     div[data-testid="stMetricValue"] {{ color: {OK_RED_LIGHT} !important; font-size: 1rem !important; line-height: 1.2; }}
+
+    /* ============ هدینگ‌ها ============ */
     h1 {{ font-size: 1.1rem !important; }}
     h2 {{ font-size: 1rem !important; }}
     h3 {{ font-size: 0.92rem !important; }}
+
+    /* ============ فوتر ============ */
     .footer-text {{
         text-align: center; color: {TXT2}; font-size: 0.72rem;
         padding: 20px 0 6px 0; border-top: 2px solid {OK_RED}; margin-top: 20px;
     }}
     .footer-text b {{ color: {OK_RED_LIGHT}; }}
+
+    /* ============ تب‌ها ============ */
     button[data-baseweb="tab"] {{
         font-size: 0.82rem !important;
         padding-left: 10px !important; padding-right: 10px !important;
@@ -323,7 +430,11 @@ st.markdown(f"""
         color: {OK_RED_LIGHT} !important;
         border-bottom-color: {OK_RED} !important;
     }}
+
+    /* ============ اسلایدر ============ */
     div[data-testid="stSlider"] div[role="slider"] {{ background-color: {OK_RED} !important; }}
+
+    /* ============ کارت‌های هشدار ============ */
     .alert-card {{
         background: {CARD_BG}; padding: 12px 14px;
         border-radius: 10px; border-right: 4px solid {OK_RED};
@@ -332,6 +443,8 @@ st.markdown(f"""
     }}
     .alert-card.warn {{ border-right-color: #f59e0b; }}
     .alert-card.ok {{ border-right-color: #10b981; }}
+
+    /* ============ کارت‌های موبایل ============ */
     .mcard {{
         background: {CARD_BG}; border-right: 4px solid {OK_RED};
         border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
@@ -358,12 +471,81 @@ st.markdown(f"""
     }}
     .mcard-row span {{ color: {TXT2}; flex-shrink: 0; }}
     .mcard-row b {{ color: {TXT}; font-weight: 600; text-align: left; word-break: break-word; }}
+
+    /* ============ دکمه دانلود ============ */
     .stDownloadButton button {{ font-size: 0.78rem !important; padding: 6px 12px !important; }}
+
     div[data-testid="stSelectbox"] {{ margin-bottom: 4px; }}
     div[data-testid="stSlider"] {{ margin-bottom: 4px; }}
+
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header[data-testid="stHeader"] {{ display: none; }}
+
+    .bnav-marker {{ height: 8px; }}
+
+    /* ============ فشرده‌سازی متریک‌ها ============ */
+    div[data-testid="stMetric"] {{
+        background: #1a1a1f;
+        padding: 8px 10px;
+        border-radius: 10px;
+        margin-bottom: 4px;
+        border-right: 3px solid #E6003E;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }}
+    div[data-testid="stMetric"] label {{
+        color: #9ca3af !important;
+        font-size: 0.66rem !important;
+        line-height: 1.2 !important;
+    }}
+    div[data-testid="stMetricValue"] {{
+        color: #FF1F5A !important;
+        font-size: 0.88rem !important;
+        line-height: 1.15 !important;
+    }}
+    div[data-testid="stMetricDelta"] {{
+        font-size: 0.65rem !important;
+        line-height: 1.1 !important;
+    }}
+    div[data-testid="stMetric"] > div {{
+        gap: 2px !important;
+    }}
+    /* کاهش فاصله بین متریک‌ها */
+    div[data-testid="stHorizontalBlock"] {{
+        gap: 4px !important;
+    }}
+
+
+    /* ============ فشرده‌سازی متریک‌ها ============ */
+    div[data-testid="stMetric"] {{
+        background: #1a1a1f;
+        padding: 8px 10px;
+        border-radius: 10px;
+        margin-bottom: 4px;
+        border-right: 3px solid #E6003E;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }}
+    div[data-testid="stMetric"] label {{
+        color: #9ca3af !important;
+        font-size: 0.66rem !important;
+        line-height: 1.2 !important;
+    }}
+    div[data-testid="stMetricValue"] {{
+        color: #FF1F5A !important;
+        font-size: 0.88rem !important;
+        line-height: 1.15 !important;
+    }}
+    div[data-testid="stMetricDelta"] {{
+        font-size: 0.65rem !important;
+        line-height: 1.1 !important;
+    }}
+    div[data-testid="stMetric"] > div {{
+        gap: 2px !important;
+    }}
+    div[data-testid="stHorizontalBlock"] {{
+        gap: 4px !important;
+    }}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -405,6 +587,7 @@ def to_number(series):
 
 
 def parse_percent(series):
+    """تشخیص خودکار نسبت اعشاری از درصد کامل — per-value"""
     raw = series.astype(str)
     has_sign = raw.str.contains("%").any()
     s = (raw.str.translate(FA_DIGITS)
@@ -413,14 +596,21 @@ def parse_percent(series):
          .str.replace("%", "", regex=False)
          .replace({"nan": None, "": None, "-": None, "None": None}))
     s = pd.to_numeric(s, errors="coerce").fillna(0)
+    if has_sign:
+        return s
+
     col_name = str(getattr(series, "name", "") or "")
-    if (not has_sign and ("درصد" in col_name or "نسبت" in col_name)
-            and len(s) > 0 and s.abs().quantile(0.95) <= 1.5):
-        s = s * 100
+
+    # ستون‌های «تحقق»: مقادیر 0-2 هستن، همیشه × ۱۰۰
+    if "تحقق" in col_name:
+        return s * 100
+
+    # ستون‌های دیگه: per-value — مقادیر زیر ۰.۵ اعشاری، بالای ۰.۵ کامل
+    if len(s) > 0:
+        s = s.apply(lambda v: v * 100 if 0 < abs(v) < 0.5 else v)
     return s
 
-
-TOTAL_RE = r"^\s*(?:جمع|مجموع|[کك]ل|total|grand\s*total|sum)(?:\s|$)"
+TOTAL_RE = r"^\s*(?:جمع|مجموع|[کک]ل|total|grand\s*total|sum)(?:\s|$)"
 
 
 def remove_totals(df, branch_col=BR):
@@ -460,7 +650,7 @@ def smart_int(s):
     return s.round(2)
 
 
-def money(v, short=False):
+def money(v, short=False, with_unit=False):
     try:
         v = float(v)
     except (TypeError, ValueError):
@@ -470,15 +660,16 @@ def money(v, short=False):
     if not short:
         return f"{v:,.0f} ریال"
     abs_v = abs(v)
+    unit = " ریال" if with_unit else ""
     if abs_v >= 1_000_000_000_000:
-        return f"{v/1_000_000_000_000:,.1f} همت"
+        return f"{v/1_000_000_000_000:,.1f} همت{unit}"
     if abs_v >= 1_000_000_000:
-        return f"{v/1_000_000_000:,.1f} میلیارد"
+        return f"{v/1_000_000_000:,.1f} میلیارد{unit}"
     if abs_v >= 1_000_000:
-        return f"{v/1_000_000:,.1f} میلیون"
+        return f"{v/1_000_000:,.1f} میلیون{unit}"
     if abs_v >= 1_000:
-        return f"{v/1_000:,.1f} هزار"
-    return f"{v:,.0f}"
+        return f"{v/1_000:,.1f} هزار{unit}"
+    return f"{v:,.0f}{unit}"
 
 
 def valid_date(s):
@@ -541,7 +732,48 @@ def _prep_raaked(d, with_code=True):
         d[SUP] = "نامشخص"
     d[QTY] = to_number(d[QTY])
     d[VAL] = to_number(d[VAL])
+    # اگه سوپروایزر خالی بود، از mapping پر کن
+    _fix_supervisor_from_map(d)
     return d.reset_index(drop=True)
+
+
+def _fix_supervisor_from_map(d):
+    """پر کردن سوپروایزر خالی از شیت تارگت — با کد شعبه و در صورت نیاز نام شعبه"""
+    if d.empty or SUP not in d.columns:
+        return d
+    try:
+        bad = d[SUP].isin(["نامشخص", "", "nan", "None"]) | d[SUP].isna()
+        if bad.sum() == 0:
+            return d
+
+        xls = pd.ExcelFile(RAAKED_FILE)
+        sh = find_sheet_exact(xls, "تارگت") or find_sheet_exact(xls, TARGET_SHEET)
+        if not sh:
+            return d
+        t = pd.read_excel(xls, sheet_name=sh)
+        t.columns = t.columns.astype(str).str.strip()
+
+        code_col = next((c for c in t.columns if "کد" in c and "شعبه" in c), None)
+        name_col = next((c for c in t.columns if "نام شعبه" in c), None)
+        sup_col = next((c for c in t.columns if c.strip() == "سوپروایزر"), None)
+        if not sup_col:
+            return d
+
+        sup_vals = normalize_name(t[sup_col])
+
+        # mapping با کد
+        if code_col and BCODE in d.columns:
+            by_code = dict(zip(_clean_code(t[code_col]), sup_vals))
+            d.loc[bad, SUP] = d.loc[bad, BCODE].map(by_code).fillna(d.loc[bad, SUP])
+
+        # fallback با نام شعبه
+        still = d[SUP].isin(["نامشخص", "", "nan", "None"]) | d[SUP].isna()
+        if still.sum() > 0 and name_col and BR in d.columns:
+            by_name = dict(zip(normalize_name(t[name_col]), sup_vals))
+            d.loc[still, SUP] = d.loc[still, BR].map(by_name).fillna("نامشخص")
+    except Exception:
+        pass
+    return d
 
 
 def parse_raaked(source):
@@ -612,8 +844,10 @@ def _prep_pq(d, default_shift="صبح"):
     else:
         d[BCODE] = ""
     d[NM] = d[NM].fillna("").astype(str).str.strip()
-    d[SUP] = (normalize_name(d[SUP]).replace("", "نامشخص")
-              if SUP in d.columns else "نامشخص")
+    if SUP in d.columns:
+        d[SUP] = normalize_name(d[SUP]).replace("", "نامشخص")
+    else:
+        d[SUP] = "نامشخص"
     d[QTY] = to_number(d[QTY])
     d[VAL] = to_number(d[VAL])
     if SHIFT not in d.columns:
@@ -830,7 +1064,7 @@ def load_target(mtime):
         t = pd.read_excel(xls, sheet_name=sh)
         t.columns = t.columns.astype(str).str.strip()
         for c in t.columns:
-            if "نام شعبه" in c or "سرپرست" in c:
+            if "نام شعبه" in c or "سرپرست" in c or "سوپروایزر" in c:
                 t[c] = normalize_name(t[c])
             if "ریالی راکد" in c:
                 t[c] = to_number(t[c])
@@ -844,13 +1078,21 @@ def load_target(mtime):
 
 def detect_target_columns(t):
     if t is None or t.empty:
-        return {"branch": None, "code": None, "supervisor": None, "raked_value": None,
+        return {"branch": None, "code": None, "supervisor": None,
+                "zone_supervisor": None, "raked_value": None,
                 "trend": [], "target": None, "achievement": None, "change": None}
     cols = list(t.columns)
+    shop_sup = next((c for c in cols if "سرپرست فروشگاه" in c or "سرپرست شعبه" in c), None)
+    zone_sup = next((c for c in cols if c.strip() == "سوپروایزر"), None)
+    if not shop_sup:
+        shop_sup = next((c for c in cols if "سرپرست" in c), None)
+    if not zone_sup:
+        zone_sup = next((c for c in cols if "سوپروایزر" in c), None)
     return {
         "branch": next((c for c in cols if "نام شعبه" in c), None),
         "code": next((c for c in cols if "کد" in c and "شعبه" in c), None),
-        "supervisor": next((c for c in cols if "سرپرست" in c or "سوپروایزر" in c), None),
+        "supervisor": shop_sup,
+        "zone_supervisor": zone_sup,
         "raked_value": next((c for c in cols if "ریالی راکد" in c), None),
         "trend": [c for c in cols if "درصد" in c and "راکد" in c],
         "target": next((c for c in cols if c.startswith("تارگت") and "تغییرات" not in c), None),
@@ -1072,17 +1314,22 @@ def render_header(subtitle=""):
 
 
 def back_link():
-    st_md('<a class="back-link" href="?page=home" target="_self">⬅️ بازگشت</a>')
+    if st.button("⬅️ بازگشت", key=f"back_btn_{st.session_state.get('page', 'home')}",
+                 type="primary"):
+        st.session_state["page"] = "home"
+        st.rerun()
+
 
 
 def metric_row(items):
+    # روی موبایل: ۲ ستون، روی دسکتاپ: همه در یک ردیف
     if is_mobile:
         per_row = 2
     else:
         per_row = max(len(items), 1)
     for i in range(0, len(items), per_row):
         chunk = items[i:i + per_row]
-        cols = st.columns(len(chunk))
+        cols = st.columns(len(chunk), gap="small")
         for col, it in zip(cols, chunk):
             col.metric(it[0], it[1], **(it[2] if len(it) > 2 else {}))
 
@@ -1355,13 +1602,76 @@ def attach_sales(df_raaked, sales_df):
     return out[cols].sort_values(VAL, ascending=False).reset_index(drop=True)
 
 
+def unsold_replacement_list(df_raaked, sales_df, n=6):
+    """لیست نهایی اقلام راکدِ بدون فروش؛ فروش‌رفته‌ها حذف و از ردیف بعدی جایگزین می‌شوند."""
+    if df_raaked is None or df_raaked.empty or n <= 0:
+        return pd.DataFrame(columns=[BR, BC, NM, QTY, VAL, S_QTY, S_AMT, S_REL, SUP])
+    x = attach_sales(df_raaked, sales_df)
+    # ابتدا بر اساس ارزش راکد مرتب است؛ سپس هر قلم فروخته‌شده کنار گذاشته می‌شود.
+    x = x[x[S_QTY] <= 0].sort_values(VAL, ascending=False).reset_index(drop=True)
+    return x.head(int(n))
+
+
+def participation_summary(df_raaked, sales_df, n=6):
+    """وضعیت مشارکت فروش برای ۶ قلم اول راکد هر شعبه را گزارش می‌کند."""
+    if df_raaked is None or df_raaked.empty:
+        return pd.DataFrame()
+    x = attach_sales(df_raaked, sales_df)
+    x = x.sort_values([BR, VAL], ascending=[True, False]).copy()
+    x["رتبه راکد"] = x.groupby(BR).cumcount() + 1
+    first = x[x["رتبه راکد"] <= int(n)].copy()
+    if first.empty:
+        return pd.DataFrame()
+    g = first.groupby(BR).agg(
+        **{
+            "تعداد اقلام بررسی": (BC, "count"),
+            "تعداد اقلام فروخته‌شده": (S_QTY, lambda s: int((s > 0).sum())),
+            "تعداد اقلام بدون فروش": (S_QTY, lambda s: int((s <= 0).sum())),
+            "فروش تعدادی": (S_QTY, "sum"),
+            "فروش ریالی": (S_AMT, "sum"),
+        }
+    ).reset_index()
+    g["وضعیت مشارکت"] = np.where(
+        g["تعداد اقلام فروخته‌شده"] <= 0, "بدون مشارکت",
+        np.where(g["تعداد اقلام بدون فروش"] <= 0, "مشارکت کامل", "مشارکت ناقص")
+    )
+    return g.sort_values(["تعداد اقلام فروخته‌شده", "فروش ریالی"], ascending=[True, False]).reset_index(drop=True)
+
+
+
+
+def collapse_group(labels, key, key_suffix=""):
+    """دکمه‌های بازشو به جای تب — پیش‌فرض بسته"""
+    state_key = f"collapse_{key}_{key_suffix}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = None
+
+    cols = st.columns(len(labels))
+    for i, (col, label) in enumerate(zip(cols, labels)):
+        with col:
+            is_active = st.session_state[state_key] == i
+            btn_type = "primary" if is_active else "secondary"
+            if st.button(label, key=f"cbtn_{key}_{i}_{key_suffix}",
+                         use_container_width=True, type=btn_type):
+                st.session_state[state_key] = None if is_active else i
+                st.rerun()
+
+    return st.session_state[state_key]
+
+
 # ================== KPI ها ==================
 def render_kpis(f60, f45):
-    metric_row([
-        ("ارزش راکد ۴۵ روزه", money(f45[VAL].sum(), short=is_mobile)),
-        ("تعداد اقلام ۶۰ روزه", f"{len(f60):,}"),
-        ("تعداد اقلام ۴۵ روزه", f"{len(f45):,}"),
-    ])
+    if is_mobile:
+        c1, c2 = st.columns(2, gap="small")
+        c1.metric("💰 ارزش راکد ۴۵", money(f45[VAL].sum(), short=True, with_unit=True))
+        c2.metric("📦 اقلام ۶۰", f"{len(f60):,}")
+        st.metric("📦 اقلام ۴۵", f"{len(f45):,}")
+    else:
+        metric_row([
+            ("ارزش راکد ۴۵ روزه", money(f45[VAL].sum(), short=False)),
+            ("تعداد اقلام ۶۰ روزه", f"{len(f60):,}"),
+            ("تعداد اقلام ۴۵ روزه", f"{len(f45):,}"),
+        ])
 
 
 def render_management_kpis(df60, df45, sales_df=None):
@@ -1373,12 +1683,13 @@ def render_management_kpis(df60, df45, sales_df=None):
     share = (v60 / v45 * 100) if v45 else 0
 
     if is_mobile:
-        st.metric("💰 ارزش راکد ۶۰ روزه", money(v60, short=True))
-        st.metric("📊 اختلاف ۴۵ و ۶۰ روزه", money(v45 - v60, short=True),
-                  delta=f"سهم ۶۰ از ۴۵: {share:.1f}%", delta_color="off")
-        st.metric("🛒 ارزش راکد آزادشده", money(released, short=True),
-                  help="min(فروش، موجودی) × قیمت واحد")
-        st.metric("📦 فروش تعدادی از اقلام راکد", f"{sold:,.0f}")
+        r1c1, r1c2 = st.columns(2, gap="small")
+        r1c1.metric("💰 ارزش راکد ۶۰ روزه", money(v60, short=True, with_unit=True))
+        r1c2.metric("📊 اختلاف ۴۵ و ۶۰", money(v45 - v60, short=True, with_unit=True),
+                    delta=f"سهم: {share:.1f}%", delta_color="off")
+        r2c1, r2c2 = st.columns(2, gap="small")
+        r2c1.metric("🛒 آزادشده", money(released, short=True, with_unit=True))
+        r2c2.metric("📦 فروش (تعداد)", f"{sold:,.0f}")
     else:
         metric_row([
             ("💰 ارزش راکد ۶۰ روزه", money(v60)),
@@ -1391,18 +1702,46 @@ def render_management_kpis(df60, df45, sales_df=None):
 
 
 def render_top_products(f60, f45, sales_df, key_suffix="", hide_sup=False):
-    top_n = st.slider("چند قلم نمایش داده شود؟", 5, 50, 20, step=5, key=f"slider_{key_suffix}")
-    tab1, tab2 = st.tabs(["۶۰ روزه", "۴۵ روزه"])
-    with tab1:
-        show_table(attach_sales(f60, sales_df).head(top_n), f"top60_{key_suffix}",
+    top_n = st.slider("چند قلم نمایش داده شود؟", 5, 50, 20, step=5,
+                      key=f"slider_{key_suffix}")
+
+    # دکمه‌های کارتی ۶۰ و ۴۵
+    col1, col2 = st.columns(2, gap="small")
+    with col1:
+        show_60 = st.session_state.get(f"show60_{key_suffix}", False)
+        if st.button("📅  ۶۰ روزه" + ("  ✓" if show_60 else ""),
+                     key=f"btn60_{key_suffix}",
+                     use_container_width=True,
+                     type="primary" if show_60 else "secondary"):
+            st.session_state[f"show60_{key_suffix}"] = not show_60
+            st.rerun()
+
+    with col2:
+        show_45 = st.session_state.get(f"show45_{key_suffix}", False)
+        if st.button("📅  ۴۵ روزه" + ("  ✓" if show_45 else ""),
+                     key=f"btn45_{key_suffix}",
+                     use_container_width=True,
+                     type="primary" if show_45 else "secondary"):
+            st.session_state[f"show45_{key_suffix}"] = not show_45
+            st.rerun()
+
+    # نمایش محتوا
+    if st.session_state.get(f"show60_{key_suffix}"):
+        unsold = unsold_replacement_list(f60, sales_df, top_n)
+        show_table(unsold, f"top60_{key_suffix}",
                    hide_supervisor=hide_sup, placeholder="نام کالا، بارکد...",
                    title_col=NM,
                    priority_cols=[BR, QTY, VAL, S_QTY, S_AMT, S_REL])
-    with tab2:
-        show_table(attach_sales(f45, sales_df).head(top_n), f"top45_{key_suffix}",
+
+    if st.session_state.get(f"show45_{key_suffix}"):
+        unsold = unsold_replacement_list(f45, sales_df, top_n)
+        show_table(unsold, f"top45_{key_suffix}",
                    hide_supervisor=hide_sup, placeholder="نام کالا، بارکد...",
                    title_col=NM,
                    priority_cols=[BR, QTY, VAL, S_QTY, S_AMT, S_REL])
+
+    if not st.session_state.get(f"show60_{key_suffix}") and not st.session_state.get(f"show45_{key_suffix}"):
+        st.info("👆 روی یکی از دکمه‌ها بزن تا لیست کالاها نمایش داده بشه.")
 
 
 def render_matched(f60, f45, sales_df, key_suffix="", hide_sup=False):
@@ -1417,15 +1756,24 @@ def render_matched(f60, f45, sales_df, key_suffix="", hide_sup=False):
     m60, m45 = matched(f60), matched(f45)
     metric_row([("کالای راکد ۶۰ روزه فروش رفته", f"{len(m60):,}"),
                 ("کالای راکد ۴۵ روزه فروش رفته", f"{len(m45):,}")])
-    t1, t2 = st.tabs(["۶۰ روزه — فروش‌رفته", "۴۵ روزه — فروش‌رفته"])
-    for tab, m, k, label in ((t1, m60, "m60", "۶۰"), (t2, m45, "m45", "۴۵")):
-        with tab:
-            if m.empty:
-                st.info(f"از اقلام راکد {label} روزه، چیزی فروش نرفت.")
-            else:
-                show_table(m, f"{k}_{key_suffix}", hide_supervisor=hide_sup,
-                           placeholder="نام کالا، بارکد...", title_col=NM,
-                           priority_cols=[BR, QTY, VAL, S_QTY, S_AMT, S_REL])
+    active = collapse_group(["📅 ۶۰ روزه فروش‌رفته", "📅 ۴۵ روزه فروش‌رفته"],
+                            "matched", key_suffix)
+    if active == 0:
+        if m60.empty:
+            st.info("از اقلام راکد ۶۰ روزه، چیزی فروش نرفت.")
+        else:
+            show_table(m60, f"m60_{key_suffix}", hide_supervisor=hide_sup,
+                       placeholder="نام کالا، بارکد...", title_col=NM,
+                       priority_cols=[BR, QTY, VAL, S_QTY, S_AMT, S_REL])
+    elif active == 1:
+        if m45.empty:
+            st.info("از اقلام راکد ۴۵ روزه، چیزی فروش نرفت.")
+        else:
+            show_table(m45, f"m45_{key_suffix}", hide_supervisor=hide_sup,
+                       placeholder="نام کالا، بارکد...", title_col=NM,
+                       priority_cols=[BR, QTY, VAL, S_QTY, S_AMT, S_REL])
+    else:
+        st.info("👆 روی یکی از دکمه‌های بالا بزن.")
 
 
 def render_action_center(df60, sales_df=None, limit=15, key="ac"):
@@ -1479,6 +1827,25 @@ def render_action_center(df60, sales_df=None, limit=15, key="ac"):
 
     st.download_button("⬇️ دانلود فهرست کامل (CSV)", csv_bytes,
                        f"action_center_{key}.csv", "text/csv", key=f"dl_ac_{key}")
+
+
+def render_participation(df60, sales_df, key="participation"):
+    if sales_df is None or sales_df.empty:
+        st.info("برای محاسبه مشارکت فروش، فایل فروش لازم است.")
+        return
+    st.subheader("📊 مشارکت شعب در فروش ۶ قلم اول")
+    p = participation_summary(df60, sales_df, 6)
+    if p.empty:
+        st.info("داده‌ای برای محاسبه مشارکت وجود ندارد.")
+        return
+    c1, c2, c3 = st.columns(3)
+    c1.metric("بدون مشارکت", f"{(p['وضعیت مشارکت'] == 'بدون مشارکت').sum():,} شعبه")
+    c2.metric("مشارکت ناقص", f"{(p['وضعیت مشارکت'] == 'مشارکت ناقص').sum():,} شعبه")
+    c3.metric("مشارکت کامل", f"{(p['وضعیت مشارکت'] == 'مشارکت کامل').sum():,} شعبه")
+    show_table(p, key, hide_supervisor=True, placeholder="جستجوی شعبه...", title_col=BR,
+               priority_cols=[BR, "تعداد اقلام بررسی", "تعداد اقلام فروخته‌شده",
+                              "تعداد اقلام بدون فروش", "فروش تعدادی", "فروش ریالی", "وضعیت مشارکت"])
+
 
 
 def _finish_summary(out, int_cols):
@@ -1555,9 +1922,9 @@ def render_cash_and_abc(df60, sales_df=None):
     monthly = total * rate / 100
 
     if is_mobile:
-        st.metric("ارزش پول خوابیده", money(total, short=True))
-        st.metric(f"هزینه ماهانه ({rate:g}٪)", money(monthly, short=True))
-        st.metric("هزینه سالانه", money(monthly * 12, short=True))
+        st.metric("ارزش پول خوابیده", money(total, short=True, with_unit=True))
+        st.metric(f"هزینه ماهانه ({rate:g}٪)", money(monthly, short=True, with_unit=True))
+        st.metric("هزینه سالانه", money(monthly * 12, short=True, with_unit=True))
         st.metric("تعداد کالاهای راکد", f"{len(df60):,}")
     else:
         metric_row([
@@ -1582,7 +1949,7 @@ def render_cash_and_abc(df60, sales_df=None):
                       delta="🟢 مناسب" if dio < 90 else "🔴 بحرانی",
                       delta_color="normal" if dio < 90 else "inverse",
                       help="ارزش راکد ÷ فروش روزانه (فقط فروش همین اقلام راکد)")
-            st.caption(f"💡 ارزش راکد: {money(total, short=True)} | فروش روزانه: {money(daily_sales_value, short=True)}")
+            st.caption(f"💡 ارزش راکد: {money(total, short=True, with_unit=True)} | فروش روزانه: {money(daily_sales_value, short=True, with_unit=True)}")
         else:
             st.info("فروشی برای محاسبه DIO وجود ندارد.")
     else:
@@ -1614,7 +1981,7 @@ def render_cash_and_abc(df60, sales_df=None):
         <div class="mcard" style="border-right-color:{c};">
             <div class="mcard-badge" style="background:{c};">{r["دسته"]}</div>
             <div class="mcard-row"><span>تعداد</span><b>{r["تعداد"]:,} قلم</b></div>
-            <div class="mcard-row"><span>ارزش</span><b>{money(r["ارزش"], short=True)}</b></div>
+            <div class="mcard-row"><span>ارزش</span><b>{money(r["ارزش"], short=True, with_unit=True)}</b></div>
         </div>
         """)
 
@@ -1651,7 +2018,7 @@ def render_charts(df60, df_target):
                       coloraxis_showscale=False)
     fig = plotly_style(fig)
     fig.update_traces(textfont=dict(color=CHART_TEXT, size=9), textposition="outside",
-                      text=top10[VAL].apply(lambda v: money(v, short=True)))
+                      text=top10[VAL].apply(lambda v: money(v, short=True, with_unit=True)))
     st.plotly_chart(fig, use_container_width=True)
 
     if df_target is not None and not df_target.empty:
@@ -1747,8 +2114,8 @@ def render_comparison():
     pct = (diff / before * 100) if before > 0 else 0
 
     if is_mobile:
-        st.metric("ارزش قبلی", money(before, short=True))
-        st.metric("ارزش فعلی", money(now, short=True),
+        st.metric("ارزش قبلی", money(before, short=True, with_unit=True))
+        st.metric("ارزش فعلی", money(now, short=True, with_unit=True),
                   delta=f"{diff:+,.0f} ریال", delta_color="inverse")
         st.metric("درصد تغییر", f"{pct:+.2f}%")
         st.metric("تعداد شعب", f"{len(cmp_df):,}")
@@ -1775,7 +2142,7 @@ def render_comparison():
             <div class="mcard" style="border-right-color: {OK_RED};">
                 <div class="mcard-badge" style="background:{OK_RED};">🔴 افزایش</div>
                 <div class="mcard-title">🏪 {esc(r['branch'])}</div>
-                <div class="mcard-row"><span>افزایش</span><b>{money(r['تغییر'], short=True)}</b></div>
+                <div class="mcard-row"><span>افزایش</span><b>{money(r['تغییر'], short=True, with_unit=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
             </div>
             """)
@@ -1787,7 +2154,7 @@ def render_comparison():
             <div class="mcard" style="border-right-color: {CHART_PIE_GREEN};">
                 <div class="mcard-badge" style="background:{CHART_PIE_GREEN};">🟢 کاهش</div>
                 <div class="mcard-title">🏪 {esc(r['branch'])}</div>
-                <div class="mcard-row"><span>کاهش</span><b>{money(r['تغییر'], short=True)}</b></div>
+                <div class="mcard-row"><span>کاهش</span><b>{money(r['تغییر'], short=True, with_unit=True)}</b></div>
                 <div class="mcard-row"><span>درصد</span><b>{r['درصد تغییر']:+.1f}%</b></div>
             </div>
             """)
@@ -1809,7 +2176,7 @@ def render_comparison():
     for name, col, color in (("قبل", "total_قبل", CHART_NEUTRAL),
                               ("فعلی", "total_الان", CHART_MAIN)):
         fig.add_trace(go.Bar(name=name, x=top["branch"], y=top[col], marker_color=color,
-                             text=top[col].apply(lambda v: money(v, short=True)),
+                             text=top[col].apply(lambda v: money(v, short=True, with_unit=True)),
                              textfont=dict(color=CHART_TEXT, size=9),
                              textposition="outside"))
     fig.update_layout(barmode="group", height=420 if is_mobile else 470,
@@ -1833,6 +2200,7 @@ def render_shift_checklist(pq45, pq60, key_suffix=""):
     if (pq45 is None or pq45.empty) and (pq60 is None or pq60.empty):
         st.info("داده‌های شیفت (pq45 / pq60) در فایل موجود نیست.")
         return
+
     with st.expander("🎛 فیلترها", expanded=False):
         sup_list = []
         for df in (pq45, pq60):
@@ -1849,8 +2217,11 @@ def render_shift_checklist(pq45, pq60, key_suffix=""):
         if df is None or df.empty:
             return df
         x = df.copy()
+        if SUP in x.columns:
+            x[SUP] = normalize_name(x[SUP])
         if selected_sup != "همه" and SUP in x.columns:
-            x = x[x[SUP] == selected_sup]
+            sel_norm = normalize_name(pd.Series([selected_sup])).iloc[0]
+            x = x[x[SUP] == sel_norm]
         if search_q and search_q.strip():
             terms = [normalize_query(t) for t in search_q.split() if t.strip()]
             mask = pd.Series(True, index=x.index)
@@ -1870,36 +2241,40 @@ def render_shift_checklist(pq45, pq60, key_suffix=""):
     f60 = apply_filters(pq60)
     n45 = 0 if f45 is None else len(f45)
     n60 = 0 if f60 is None else len(f60)
-    tabs = st.tabs([f"🌅 صبح ({n45})", f"🌙 عصر ({n60})"])
 
-    for tab, df, shift_name, k in ((tabs[0], f45, "صبح", "morning"),
-                                    (tabs[1], f60, "عصر", "evening")):
+    tab1, tab2 = st.tabs([f"🌅 صبح ({n45})", f"🌙 عصر ({n60})"])
+
+    for tab, df, shift_name, k in ((tab1, f45, "صبح", "morning"),
+                                    (tab2, f60, "عصر", "evening")):
         with tab:
             if df is None or df.empty:
                 st.info(f"داده‌ای برای شیفت {shift_name} وجود ندارد.")
                 continue
+
             kpi_cols = st.columns(3)
             kpi_cols[0].metric("تعداد اقلام", f"{len(df):,}")
-            kpi_cols[1].metric("ارزش راکد", money(df[VAL].sum(), short=is_mobile))
+            kpi_cols[1].metric("ارزش راکد",
+                                money(df[VAL].sum(), short=is_mobile, with_unit=is_mobile))
             kpi_cols[2].metric("تعداد شعبه", f"{df[BR].nunique():,}")
             st.divider()
+
             if is_mobile:
-                render_mobile_cards(
-                    df, max_rows=100,
-                    title_col=NM, sub_col=BR,
-                    priority_cols=[SUP, BC, QTY, VAL]
-                )
+                render_mobile_cards(df, max_rows=100,
+                                    title_col=NM, sub_col=BR,
+                                    priority_cols=[SUP, BC, QTY, VAL])
             else:
                 view = df[[c for c in [BR, BCODE, BC, NM, QTY, VAL, SUP]
                            if c in df.columns]]
                 st.dataframe(view, use_container_width=True, hide_index=True,
                              column_config=column_config(view))
+
             st.download_button(
                 f"⬇️ دانلود چک‌لیست {shift_name}",
                 df.to_csv(index=False).encode("utf-8-sig"),
                 f"shift_{k}_{key_suffix}.csv", "text/csv",
                 key=f"dl_shift_{k}_{key_suffix}"
             )
+
 
 
 # ================== روند و مقایسه ==================
@@ -2294,8 +2669,9 @@ def render_target_kpis(t_df):
 
 def render_target_table(t_df, key_suffix=""):
     cm = detect_target_columns(t_df)
-    display_cols = [cm[k] for k in ("branch", "supervisor", "raked_value", "target",
-                                     "achievement", "change") if cm.get(k)]
+    display_cols = [cm[k] for k in ("branch", "supervisor", "zone_supervisor",
+                                     "raked_value", "target", "achievement", "change")
+                    if cm.get(k)]
     if not display_cols:
         st.warning("ستون‌های تارگت قابل شناسایی نیست.")
         return
@@ -2345,30 +2721,106 @@ def render_target_trend(t_df, key_suffix=""):
     if not trend_cols or not branch_col:
         st.info("ستون‌های روند پیدا نشدند.")
         return
-    chart_data = t_df[[branch_col] + trend_cols].copy()
-    names = [c.replace("درصد راکد", "").replace("درصد  راکد", "").strip() for c in trend_cols]
-    chart_data = chart_data.rename(columns=dict(zip(trend_cols, names))).set_index(branch_col)
-    selected = st.multiselect("🔎 انتخاب شعب", options=chart_data.index.tolist(),
-                              default=[], key=f"chart_branches_{key_suffix}")
-    if selected:
-        chart_data = chart_data.loc[selected]
-    if chart_data.empty:
+
+    # ترتیب ماه‌های شمسی
+    MONTH_ORDER = {"فروردین": 1, "اردیبهشت": 2, "خرداد": 3, "تیر": 4,
+                   "مرداد": 5, "شهریور": 6, "مهر": 7, "آبان": 8,
+                   "آذر": 9, "دی": 10, "بهمن": 11, "اسفند": 12}
+
+    def _date_key(c):
+        """مرتب‌سازی بر اساس (ماه, روز)"""
+        c_clean = str(c).translate(FA_DIGITS)
+        # پیدا کردن روز و ماه
+        m = re.search(r"([0-9]+)\s*(شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|فروردین|اردیبهشت|خرداد|تیر|مرداد)", c_clean)
+        if not m:
+            # اگه نبود، فقط عدد
+            m2 = re.search(r"([0-9]+)", c_clean)
+            return (0, int(m2.group(1))) if m2 else (99, 99)
+        day = int(m.group(1))
+        month = MONTH_ORDER.get(m.group(2), 99)
+        return (month, day)
+
+    trend_sorted = sorted(trend_cols, key=_date_key)
+    labels = [str(c).replace("درصد راکد", "").replace("درصد  راکد", "").strip()
+              for c in trend_sorted]
+
+    df = t_df[[branch_col] + trend_sorted].copy()
+    df = df.set_index(branch_col)
+    for c in df.columns:
+        df[c] = parse_percent(df[c])
+
+    all_branches = df.index.tolist()
+    default_sel = all_branches[:3] if len(all_branches) >= 3 else all_branches
+
+    selected = st.multiselect(
+        "🔎 انتخاب شعب",
+        options=all_branches,
+        default=default_sel,
+        key=f"chart_branches_{key_suffix}"
+    )
+
+    if not selected:
         st.info("شعبه‌ای انتخاب نشده.")
         return
+
+    colors = ["#E6003E", "#FF1F5A", "#f59e0b", "#10b981", "#3b82f6",
+              "#8b5cf6", "#ec4899", "#06b6d4", "#f97316", "#84cc16"]
+
     fig = go.Figure()
-    for col in chart_data.columns:
-        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data[col],
-                                 mode="lines+markers", name=str(col)))
-    fig.update_layout(title="روند درصد راکد", height=450 if is_mobile else 500,
-                      xaxis_title="شعبه", yaxis_title="درصد")
+    for i, bname in enumerate(selected):
+        vals = df.loc[bname, trend_sorted].values
+        fig.add_trace(go.Scatter(
+            x=labels,
+            y=vals,
+            mode="lines+markers",
+            name=str(bname),
+            line=dict(width=2.5, color=colors[i % len(colors)]),
+            marker=dict(size=9),
+        ))
+
+    # محاسبه min/max برای padding
+    all_vals = []
+    for bname in selected:
+        all_vals.extend([v for v in df.loc[bname, trend_sorted].values if v == v])
+    if all_vals:
+        y_min = min(all_vals) * 0.9
+        y_max = max(all_vals) * 1.1
+    else:
+        y_min, y_max = 0, 10
+
+    fig.update_layout(
+        title="📈 روند درصد کالای راکد",
+        height=520 if is_mobile else 600,
+        xaxis_title="تاریخ",
+        yaxis_title="درصد راکد (%)",
+        xaxis_tickangle=-40,
+        yaxis=dict(range=[y_min, y_max]),
+        hovermode="x unified",
+    )
     fig = plotly_style(fig, show_legend_bg=True)
-    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.5))
+    fig.update_layout(
+        legend=dict(orientation="h", yanchor="bottom", y=-0.7, xanchor="center", x=0.5),
+        margin=dict(l=10, r=20, t=60, b=120),
+    )
     st.plotly_chart(fig, use_container_width=True)
+
     with st.expander("📊 جدول روند"):
-        st.dataframe(chart_data, use_container_width=True)
+        disp = df.loc[selected, trend_sorted].copy()
+        disp.columns = labels
+        disp = disp.round(2)
+        disp.index.name = "شعبه"
+        st.dataframe(disp, use_container_width=True)
+        st.download_button(
+            "⬇️ دانلود CSV",
+            disp.to_csv().encode("utf-8-sig"),
+            f"trend_{key_suffix}.csv", "text/csv",
+            key=f"dl_trend_{key_suffix}"
+        )
 
 
-def render_ranking(t_df, key_suffix=""):
+
+def render_ranking(t_df, key_suffix="", all_df=None):
+    """رتبه‌بندی — اگه تعداد کم بود، فقط یک لیست نشون بده"""
     cm = detect_target_columns(t_df)
     branch_col, sup_col, ach_col = cm.get("branch"), cm.get("supervisor"), cm.get("achievement")
     change_col, raked_col = cm.get("change"), cm.get("raked_value")
@@ -2383,10 +2835,35 @@ def render_ranking(t_df, key_suffix=""):
             return ("در حال پیشرفت", "#f59e0b", "🟡")
         return ("بحرانی", OK_RED, "🔴")
 
-    rank_df = t_df[[c for c in [branch_col, sup_col, raked_col, ach_col, change_col] if c]].copy()
-    rank_df["وضعیت"] = rank_df[ach_col].apply(lambda v: status_badge(v)[0])
-    rank_df = rank_df.sort_values(ach_col, ascending=False).reset_index(drop=True)
-    rank_df.insert(0, "رتبه", range(1, len(rank_df) + 1))
+    # منبع رتبه: اگه all_df داده شده، از اون استفاده کن (همه شعب)
+    source_df = all_df if all_df is not None and not all_df.empty else t_df
+
+    # فیلتر ردیف‌های خالی از منبع
+    _bcol = next((c for c in source_df.columns if "نام شعبه" in c), None)
+    if _bcol:
+        _nm = source_df[_bcol].astype(str).str.strip()
+        _empty = source_df[_bcol].isna() | _nm.isin(["", "nan", "None", "NaN"])
+        _total = _nm.str.contains(r"^\s*(?:جمع|مجموع|کل|total|grand|sum)",
+                                   case=False, regex=True, na=False)
+        source_df = source_df[~(_empty | _total)].copy().reset_index(drop=True)
+
+    # رتبه‌بندی کامل روی منبع
+    full_rank = source_df.sort_values(ach_col, ascending=False).reset_index(drop=True)
+    full_rank["رتبه"] = range(1, len(full_rank) + 1)
+
+    # اگه t_df زیرمجموعه‌ست
+    if all_df is not None and not all_df.empty and len(t_df) < len(source_df):
+        _rank_map = dict(zip(full_rank[branch_col], full_rank["رتبه"]))
+        rank_df = t_df.copy()
+        rank_df["رتبه"] = rank_df[branch_col].map(_rank_map).fillna(0).astype(int)
+        rank_df["وضعیت"] = rank_df[ach_col].apply(lambda v: status_badge(v)[0])
+        rank_df = rank_df.sort_values("رتبه").reset_index(drop=True)
+    else:
+        rank_df = full_rank[[c for c in [branch_col, sup_col, raked_col, ach_col, change_col] if c]].copy()
+        rank_df["رتبه"] = full_rank["رتبه"]
+        rank_df["وضعیت"] = rank_df[ach_col].apply(lambda v: status_badge(v)[0])
+
+    total_n = len(source_df)
     n = len(rank_df)
     if n == 0:
         st.info("داده‌ای وجود ندارد.")
@@ -2400,7 +2877,7 @@ def render_ranking(t_df, key_suffix=""):
                 sup_txt = r.get(sup_col, '—') if sup_col else '—'
                 st_md(f"""
                 <div class="mcard">
-                    <div class="mcard-badge" style="background:{bg};">{icon} رتبه {r['رتبه']}</div>
+                    <div class="mcard-badge" style="background:{bg};">{icon} رتبه {int(r['رتبه'])} از {total_n}</div>
                     <div class="mcard-title">🏪 {esc(r[branch_col])}</div>
                     <div class="mcard-sup">👤 {esc(sup_txt)}</div>
                     <div class="mcard-row"><span>تحقق</span><b>{r[ach_col]:.1f}%</b></div>
@@ -2411,17 +2888,31 @@ def render_ranking(t_df, key_suffix=""):
             st.dataframe(df, use_container_width=True, hide_index=True,
                          column_config=target_column_config(df))
 
+    # ═════════════════════════════════════════
+    # اگه تعداد ردیف کمه، فقط یک لیست
+    # ═════════════════════════════════════════
     if n == 1:
-        show_rank(rank_df, "📌 تک شعبه")
+        r = rank_df.iloc[0]
+        st.info(f"📌 این شعبه رتبه **{int(r['رتبه'])}** از **{total_n}** شعبه دیستریکت را دارد.")
+        show_rank(rank_df, "📌 این شعبه")
         return
 
-    show_rank(rank_df.head(min(10, n)), "🥇 بهترین ۱۰ شعبه")
-    worst = rank_df.tail(min(10, n)).sort_values(ach_col).reset_index(drop=True)
-    # بدترین شعبه آخرین رتبه (n) را دارد؛ پس شمارش از n به پایین است
-    worst["رتبه"] = list(range(n, n - len(worst), -1))
-    show_rank(worst, "⚠️ بدترین ۱۰ شعبه")
+    if n <= 15:
+        # یک لیست کامل، بدون بهترین/بدترین
+        show_rank(rank_df, f"📋 لیست شعب ({n} شعبه از {total_n})")
+    else:
+        # حالت عادی: بهترین ۱۰ و بدترین ۱۰
+        top10 = rank_df.head(10)
+        show_rank(top10, "🥇 بهترین ۱۰ شعبه")
+        bottom10 = rank_df.sort_values("رتبه", ascending=False).head(10).reset_index(drop=True)
+        # اگه با top10 همپوشانی داشت، فقط بخش پایین
+        if n > 20:
+            show_rank(bottom10, "⚠️ بدترین ۱۰ شعبه")
+        else:
+            show_rank(bottom10, "📋 پایین‌ترین رتبه‌ها")
 
-    if sup_col:
+    # رتبه‌بندی سرپرست‌ها (فقط برای دیستریکت)
+    if sup_col and all_df is None and n > 15:
         st.markdown("**👤 رتبه‌بندی سرپرست‌ها**")
         agg = {ach_col: "mean"}
         if raked_col:
@@ -2445,6 +2936,7 @@ def render_ranking(t_df, key_suffix=""):
                 """)
         else:
             st.dataframe(sup_rank, use_container_width=True, hide_index=True)
+
 
 
 def render_weekly_target(t_df):
@@ -2487,7 +2979,7 @@ def render_weekly_target(t_df):
     st_md(f'<div class="alert-card {cls}"><b>وضعیت:</b> {status}</div>')
 
 
-def render_target(t_df, key_suffix=""):
+def render_target(t_df, key_suffix="", all_df=None):
     if t_df is None:
         st.warning("⚠️ فایل تارگت موجود نیست.")
         return
@@ -2496,22 +2988,332 @@ def render_target(t_df, key_suffix=""):
         return
     render_target_kpis(t_df)
     st.divider()
-    tab1, tab2, tab3 = st.tabs(["📋 جدول", "📈 روند", "🏆 رتبه‌بندی"])
-    with tab1:
+    active = collapse_group(["📋 جدول", "📈 روند", "🏆 رتبه‌بندی"],
+                            "target", key_suffix)
+    if active == 0:
         render_target_table(t_df, key_suffix)
-    with tab2:
+    elif active == 1:
         render_target_trend(t_df, key_suffix)
-    with tab3:
-        render_ranking(t_df, key_suffix)
+    elif active == 2:
+        render_ranking(t_df, key_suffix, all_df=all_df)
+    else:
+        st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
+
+
+
+# ================== Session State Helper ==================
+def _set_page(target):
+    st.session_state["page"] = target
+    st.rerun()
+
+
+def _nav_card(target, icon, label, sub="", key=""):
+    """کارت با دکمه — آیکون بالا، label پایین"""
+    # ساخت متن: آیکون (bold بزرگ) + label + sub
+    if sub:
+        md_text = f"**{icon}**\n{label}\n{sub}"
+    else:
+        md_text = f"**{icon}**\n{label}"
+
+    if st.button(md_text, key=f"nav_{target}_{key}", use_container_width=True):
+        st.session_state["page"] = target
+        st.rerun()
+
+
+
+
+
+
+# ================== Login + Splash ==================
+import sqlite3 as _sqlite3
+from datetime import datetime as _dt
+import time as _time
+
+
+def _log_activity(personnel_code, page_name, action="view"):
+    try:
+        conn = _sqlite3.connect(HISTORY_DB)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                personnel_code TEXT,
+                page TEXT,
+                action TEXT,
+                ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "INSERT INTO user_activity (personnel_code, page, action) VALUES (?, ?, ?)",
+            (str(personnel_code or ""), str(page_name or ""), str(action or ""))
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _splash_screen(personnel_code):
+    st_md(f"""
+    <div style="display:flex; flex-direction:column; align-items:center;
+                justify-content:center; min-height:70vh; text-align:center;
+                color:#e5e7eb;">
+        <div style="font-size:3rem; margin-bottom:16px;">⏳</div>
+        <h2 style="color:#FF1F5A; margin-bottom:8px;">لطفاً صبر کنید</h2>
+        <p style="color:#9ca3af; font-size:0.9rem;">
+            در حال آماده‌سازی داشبورد برای کد <b>{personnel_code}</b>
+        </p>
+    </div>
+    """)
+    try:
+        _ = load_all(RAAKED_FILE, _mtime(RAAKED_FILE))
+    except Exception:
+        pass
+    _time.sleep(0.5)
+
+
+def _render_login_gate():
+    st.markdown("## 🔐 ورود به داشبورد")
+    st_md("""
+    <div class="app-hero" style="text-align:center; padding:26px 18px;">
+        <h2>🛒 داشبورد کالای راکد</h2>
+        <p>فروشگاه‌های زنجیره‌ای افق کوروش</p>
+    </div>
+    """)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        code = st.text_input("🔑 کد پرسنلی", key="login_code_input",
+                              placeholder="کد پرسنلی خود را وارد کنید")
+        if st.button("ورود", type="primary", use_container_width=True, key="login_btn"):
+            code_clean = (code or "").strip()
+            if not code_clean:
+                st.error("❌ لطفاً کد پرسنلی را وارد کنید")
+            else:
+                st.session_state["current_user"] = {
+                    "personnel_code": code_clean,
+                    "login_time": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                _log_activity(code_clean, "login", "login")
+                st.session_state["show_splash"] = True
+                st.rerun()
+        st.markdown("")
+        st.caption("🔒 تمام ورودها در سیستم ثبت می‌شوند.")
+
+
+def _logout():
+    u = st.session_state.get("current_user", {})
+    if u:
+        _log_activity(u.get("personnel_code"), "logout", "logout")
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    st.rerun()
+
+
+def _check_locked_access(page_label, key_suffix="main"):
+    """رمز مشترک برای سه صفحه — یک بار وارد کردن کافیه"""
+    if st.session_state.get("unlock_locked_pages"):
+        return True
+
+    st.warning(f"🔒 صفحه «{page_label}» محافظت‌شده است.")
+    st.caption("یک بار رمز رو وارد کن، برای هر سه صفحه (گزارش، تحلیل، آپلود) کافیه.")
+
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        pw = st.text_input("🔑 رمز مدیریت", type="password",
+                            key=f"pw_locked_{key_suffix}")
+    with col2:
+        st.write("")
+        st.write("")
+        if st.button("ورود", type="primary", key=f"unlock_{key_suffix}",
+                     use_container_width=True):
+            import hmac
+            try:
+                from report_sender import _get_admin_password
+                expected = _get_admin_password()
+            except Exception:
+                expected = "admin1234"
+            if pw and hmac.compare_digest(pw.encode(), expected.encode()):
+                st.session_state["unlock_locked_pages"] = True
+                st.rerun()
+            else:
+                st.error("❌ رمز اشتباه")
+    st.stop()
+
+
+# ================== Login Check ==================
+if "current_user" not in st.session_state:
+    _render_login_gate()
+    st.stop()
+
+if st.session_state.get("show_splash"):
+    _splash_screen(st.session_state["current_user"].get("personnel_code", ""))
+    st.session_state["show_splash"] = False
+    st.rerun()
+
+
+
+
+# ================== پروژه پرزنتی راکد ==================
+def _render_presentation_data(df, title, sales_df=None, key_suffix=""):
+    """نمایش داده راکد با فیلترهای هوشمند"""
+    if df is None or df.empty:
+        st.info("داده‌ای برای نمایش نیست.")
+        return
+
+    # نرمال‌سازی نام‌ها برای فیلتر
+    df = df.copy()
+    if BR in df.columns:
+        df[BR] = normalize_name(df[BR])
+    if SUP in df.columns:
+        df[SUP] = normalize_name(df[SUP])
+
+    # KPI
+    total_val = df[VAL].sum()
+    total_qty = df[QTY].sum()
+    branch_count = df[BR].nunique()
+    item_count = len(df)
+
+    if is_mobile:
+        c1, c2 = st.columns(2, gap="small")
+        c1.metric("💰 ارزش کل", money(total_val, short=True, with_unit=True))
+        c2.metric("📦 تعداد اقلام", f"{item_count:,}")
+        c3, c4 = st.columns(2, gap="small")
+        c3.metric("🏪 تعداد شعب", f"{branch_count:,}")
+        c4.metric("📊 موجودی کل", f"{total_qty:,.0f}")
+    else:
+        metric_row([
+            ("💰 ارزش کل راکد", money(total_val)),
+            ("📦 تعداد اقلام", f"{item_count:,}"),
+            ("🏪 تعداد شعب", f"{branch_count:,}"),
+            ("📊 موجودی کل", f"{total_qty:,.0f}"),
+        ])
+
+    st.divider()
+
+    # فیلترها
+    with st.expander("🎛 فیلترها", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            sup_options = ["همه"]
+            if SUP in df.columns:
+                sup_options += sorted(df[SUP].dropna().unique().tolist())
+            sel_sup = st.selectbox("سرپرست", sup_options,
+                                    key=f"pres_sup_{key_suffix}")
+
+        # شعب رو بر اساس سرپرست فیلتر کن
+        if sel_sup != "همه" and SUP in df.columns:
+            branch_options = ["همه"] + sorted(
+                df[df[SUP] == sel_sup][BR].dropna().unique().tolist()
+            )
+        else:
+            branch_options = ["همه"] + sorted(df[BR].dropna().unique().tolist())
+
+        with col2:
+            sel_branch = st.selectbox("شعبه", branch_options,
+                                       key=f"pres_branch_{key_suffix}")
+
+        search_q = st.text_input("🔍 جستجو (نام کالا / بارکد / شعبه)",
+                                  key=f"pres_search_{key_suffix}",
+                                  placeholder="مثلاً: برنج یا 6260...")
+
+    # اعمال فیلترها
+    view = df.copy()
+    if sel_sup != "همه" and SUP in view.columns:
+        view = view[view[SUP] == sel_sup]
+    if sel_branch != "همه":
+        view = view[view[BR] == sel_branch]
+    if search_q and search_q.strip():
+        terms = [normalize_query(t) for t in search_q.split() if t.strip()]
+        mask = pd.Series(True, index=view.index)
+        for term in terms:
+            m = pd.Series(False, index=view.index)
+            for c in view.columns:
+                txt = (view[c].astype(str).str.lower().str.translate(FA_DIGITS)
+                       .str.replace("ي", "ی", regex=False)
+                       .str.replace("ك", "ک", regex=False))
+                m |= txt.str.contains(term, na=False, regex=False)
+            mask &= m
+        view = view[mask]
+
+    # پیام‌های کمکی
+    if view.empty:
+        st.warning(f"⚠️ هیچ ردیفی با این فیلترها پیدا نشد.")
+        st.info(f"💡 مجموع: {len(df)} ردیف | "
+                f"بعد از فیلتر سرپرست: {len(df[df[SUP] == sel_sup]) if sel_sup != 'همه' and SUP in df.columns else len(df)} ردیف")
+        if sel_branch != "همه" and sel_sup != "همه" and SUP in df.columns:
+            b_sups = df[df[BR] == sel_branch][SUP].dropna().unique().tolist()
+            st.caption(f"📌 سرپرست‌های «{sel_branch}»: {', '.join(b_sups) if b_sups else 'هیچ‌کدام'}")
+        return
+
+    st.caption(f"🔸 {len(view):,} ردیف | ارزش: {money(view[VAL].sum(), short=is_mobile)}")
+
+    # نمایش
+    if is_mobile:
+        render_mobile_cards(view, max_rows=100, title_col=NM, sub_col=BR,
+                            priority_cols=[BC, QTY, VAL, SUP])
+    else:
+        display_cols = [c for c in [BR, BCODE, BC, NM, QTY, VAL, SUP] if c in view.columns]
+        st.dataframe(view[display_cols].head(500),
+                     use_container_width=True, hide_index=True,
+                     column_config=column_config(view[display_cols]))
+
+    st.download_button(
+        f"⬇️ دانلود {title} (CSV)",
+        view.to_csv(index=False).encode("utf-8-sig"),
+        f"presentation_{key_suffix}.csv", "text/csv",
+        key=f"dl_pres_{key_suffix}"
+    )
+
+
+
+def render_presentation_page(pq45, pq60, df60, df45, key_suffix="pres"):
+    st.markdown("### 📦 پروژه پرزنتی راکد")
+    st.caption("نمایش کامل ۱۰ قلم برتر هر شعبه و همه اقلام راکد")
+
+    active = collapse_group([
+        "🎯 ۱۰ قلم ۶۰ روزه",
+        "🎯 ۱۰ قلم ۴۵ روزه",
+        "📊 همه ۶۰ روزه",
+        "📊 همه ۴۵ روزه",
+    ], "pres", key_suffix)
+
+    if active == 0:
+        if pq60 is None or pq60.empty:
+            st.info("داده‌های pq60 در فایل موجود نیست.")
+        else:
+            _render_presentation_data(pq60, "۱۰ قلم ۶۰ روزه",
+                                       key_suffix=f"{key_suffix}_pq60")
+    elif active == 1:
+        if pq45 is None or pq45.empty:
+            st.info("داده‌های pq45 در فایل موجود نیست.")
+        else:
+            _render_presentation_data(pq45, "۱۰ قلم ۴۵ روزه",
+                                       key_suffix=f"{key_suffix}_pq45")
+    elif active == 2:
+        _render_presentation_data(df60, "همه اقلام ۶۰ روزه",
+                                   key_suffix=f"{key_suffix}_tbl60")
+    elif active == 3:
+        _render_presentation_data(df45, "همه اقلام ۴۵ روزه",
+                                   key_suffix=f"{key_suffix}_tbl45")
+    else:
+        st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
 
 
 # ================== مسیریابی ==================
-try:
-    page = st.query_params.get("page", "home")
-except Exception:
-    page = st.experimental_get_query_params().get("page", ["home"])[0]
+# خواندن page از session_state (پایدار)
+# فقط از session_state — هیچ لینکی URL رو عوض نمی‌کنه
+if "page" not in st.session_state:
+    st.session_state["page"] = "home"
+
+page = st.session_state.get("page", "home")
 if page not in VALID_PAGES:
     page = "home"
+
+# لاگ بازدید صفحه
+_page_log_key = f"_logged_page_{page}"
+if not st.session_state.get(_page_log_key):
+    _u = st.session_state.get("current_user", {})
+    _log_activity(_u.get("personnel_code"), page, "view")
+    st.session_state[_page_log_key] = True
 
 # ================== خواندن داده ==================
 data_error = None
@@ -2567,46 +3369,49 @@ def show_last_update_badge():
               f'{label} | {(rows or 0):,} ردیف</div>')
 
 
-def card_html(target, icon, title, sub, light):
-    cls = "home-card light" if light else "home-card"
-    return (f'<a class="card-link" href="?page={target}" target="_self">'
-            f'<div class="{cls}"><div class="icon">{icon}</div>'
-            f'<h2>{title}</h2><p>{sub}</p></div></a>')
 
-
-CARDS = [
-    ("district", "📊", "عملکرد کلی دیستریکت", "نمای کلی و KPIها", False),
-    ("store", "🏪", "عملکرد فروشگاه‌ها", "تحلیل هر شعبه", True),
-    ("supervisor", "👤", "عملکرد سوپروایزرها", "عملکرد هر سرپرست", True),
-    ("target", "🎯", "تارگت و روند", "اهداف و رتبه‌بندی", False),
-    ("shift", "📋", "چک‌لیست شیفت", "پیگیری صبح و عصر", True),
-    ("trend", "📈", "روند و مقایسه", "افت و رشد شعب", True),
-    ("report", "📨", "ارسال گزارش", "بله + ایمیل", True),
-    ("analytics", "💰", "تحلیل پیشرفته", "ABC و نمودارها", False),
-    ("upload", "📤", "آپلود و تاریخچه", "فایل جدید", False),
-]
 
 if page == "home":
     render_header("فروشگاه‌های زنجیره‌ای افق کوروش")
+
+    user = st.session_state.get("current_user", {})
+    user_name = user.get("personnel_code", "کاربر")
+
+    st_md(f"""
+    <div class="app-hero">
+        <h2>سلام {user_name} 👋</h2>
+        <p>داشبورد مدیریت کالای راکد — افق کوروش</p>
+    </div>
+    """)
+
     show_last_update_badge()
 
-    st.markdown("### 📌 خلاصه امروز")
-    render_management_kpis(df60, df45, df_sales)
-    render_weekly_target(df_target)
-    st.divider()
+    st_md('<div class="app-section-title">📌 بخش‌های اصلی</div>')
 
-    st.markdown("### گزینه‌ها:")
-    if is_mobile:
-        for i in range(0, len(CARDS), 2):
-            for col, c in zip(st.columns(2), CARDS[i:i + 2]):
-                col.markdown(_html(card_html(*c)), unsafe_allow_html=True)
-    else:
-        for i in range(0, len(CARDS), 3):
-            chunk = CARDS[i:i + 3]
-            row = "".join(card_html(*c) for c in chunk)
-            row += '<div style="flex:1 1 0; min-width:0;"></div>' * (3 - len(chunk))
-            st.markdown(_html(f'<div style="display:flex; gap:12px; align-items:stretch; '
-                              f'margin-bottom:12px;">{row}</div>'), unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        _nav_card("store", "🏪", "عملکرد فروشگاه‌ها", "تحلیل هر شعبه", "h1")
+    with c2:
+        _nav_card("supervisor", "👤", "عملکرد سوپروایزرها", "عملکرد هر سرپرست", "h2")
+
+    c3, c4 = st.columns(2)
+    with c3:
+        _nav_card("target", "🎯", "تارگت و روند", "اهداف و رتبه‌بندی", "h3")
+    with c4:
+        _nav_card("district", "📊", "عملکرد دیستریکت", "KPI کلی", "h4")
+
+    st_md('<div class="app-section-title">📦 پروژه ویژه</div>')
+
+    _nav_card("presentation", "📦", "پروژه پرزنتی راکد",
+              "۱۰ قلم برتر + همه اقلام", "h_pres")
+
+    st_md('<div class="app-section-title">🎯 پیگیری</div>')
+
+    c5, c6 = st.columns(2)
+    with c5:
+        _nav_card("shift", "📋", "چک‌لیست شیفت", "صبح و عصر", "h5")
+    with c6:
+        _nav_card("trend", "📈", "روند و مقایسه", "افت و رشد", "h6")
 
     st_md('<div class="footer-text">ساخته شده توسط <b>شاهین باقری</b></div>')
 
@@ -2623,11 +3428,13 @@ elif page == "district":
     st.divider()
     render_action_center(df60, df_sales, key="district")
     st.divider()
-    t1, t2 = st.tabs(["🏪 شعب", "👤 سرپرست‌ها"])
-    with t1:
+    active = collapse_group(["🏪 شعب", "👤 سرپرست‌ها"], "district", "main")
+    if active == 0:
         show_summary(branch_summary(df60, df45, df_sales), "branches_summary")
-    with t2:
+    elif active == 1:
         show_summary(supervisor_summary(df60, df45, df_sales), "supervisors_summary")
+    else:
+        st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
     st.divider()
     if st.button("📥 خروجی اکسل کامل", key="export_district"):
         with st.spinner("در حال ساخت..."):
@@ -2643,7 +3450,7 @@ elif page == "district":
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="dl_district_xls")
     st.divider()
-    st.subheader("🚨 کالاهای راکد برتر")
+    st.subheader("🚨 کالاهای راکدِ بدون فروش")
     render_top_products(df60, df45, df_sales, key_suffix="district")
     st.divider()
     st.subheader("✅ کالاهای راکدی که فروش رفتند")
@@ -2672,17 +3479,21 @@ elif page == "store":
     render_management_kpis(b60, b45, branch_sales)
     render_kpis(b60, b45)
     st.divider()
-    tabs = st.tabs(["📦 اقلام راکد", "🎯 تارگت"])
-    with tabs[0]:
-        st.subheader("🚨 کالاهای راکد برتر")
+    active = collapse_group(["📦 اقلام راکد", "🎯 تارگت"],
+                            "store", f"br_{selected_branch}")
+    if active == 0:
+        st.subheader("🚨 کالاهای راکدِ بدون فروش")
         render_top_products(b60, b45, branch_sales,
                             key_suffix=f"branch_{selected_branch}", hide_sup=True)
         st.divider()
         st.subheader("✅ کالاهای راکدی که فروش رفتند")
         render_matched(b60, b45, branch_sales,
                        key_suffix=f"branch_m_{selected_branch}", hide_sup=True)
-    with tabs[1]:
-        render_target(branch_target, key_suffix=f"branch_{selected_branch}")
+    elif active == 1:
+        render_target(branch_target, key_suffix=f"branch_{selected_branch}",
+                      all_df=df_target)
+    else:
+        st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
 
 elif page == "supervisor":
     back_link()
@@ -2709,15 +3520,19 @@ elif page == "supervisor":
     with st.expander("📋 وضعیت شعبه‌ها"):
         show_summary(branch_summary(s60, s45, sup_sales).drop(columns=[SUP], errors="ignore"),
                      f"sup_branches_{selected_sup}")
-    tabs = st.tabs(["📦 اقلام راکد", "🎯 تارگت"])
-    with tabs[0]:
-        st.subheader("🚨 کالاهای راکد برتر")
+    active = collapse_group(["📦 اقلام راکد", "🎯 تارگت"],
+                            "supervisor", f"sup_{selected_sup}")
+    if active == 0:
+        st.subheader("🚨 کالاهای راکدِ بدون فروش")
         render_top_products(s60, s45, sup_sales, key_suffix=f"sup_{selected_sup}", hide_sup=True)
         st.divider()
         st.subheader("✅ کالاهای راکدی که فروش رفتند")
         render_matched(s60, s45, sup_sales, key_suffix=f"sup_m_{selected_sup}", hide_sup=True)
-    with tabs[1]:
-        render_target(sup_target, key_suffix=f"sup_{selected_sup}")
+    elif active == 1:
+        render_target(sup_target, key_suffix=f"sup_{selected_sup}",
+                      all_df=df_target)
+    else:
+        st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
 
 elif page == "target":
     back_link()
@@ -2727,15 +3542,19 @@ elif page == "target":
 elif page == "analytics":
     back_link()
     render_header("تحلیل پیشرفته")
-    tab1, tab2, tab3 = st.tabs(["💰 پول خوابیده", "📊 نمودارها", "📈 مقایسه"])
-    with tab1:
+    _check_locked_access("تحلیل پیشرفته", "analytics")
+    active = collapse_group(["💰 پول خوابیده", "📊 نمودارها", "📈 مقایسه"],
+                            "analytics", "main")
+    if active == 0:
         render_cash_and_abc(df60, df_sales)
-    with tab2:
+    elif active == 1:
         render_charts(df60, df_target)
-    with tab3:
+    elif active == 2:
         render_comparison()
         st.divider()
         render_history_trend()
+    else:
+        st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
     st.divider()
     render_action_center(df60, df_sales, key="analytics")
 
@@ -2754,9 +3573,38 @@ elif page == "trend":
 elif page == "upload":
     back_link()
     render_header("آپلود فایل و تاریخچه")
+    _check_locked_access("آپلود و تاریخچه", "upload")
     render_upload()
+elif page == "presentation":
+    back_link()
+    render_header("پروژه پرزنتی راکد")
+    show_last_update_badge()
+    render_presentation_page(pq45, pq60, df60, df45, key_suffix="main")
+
 elif page == "report":
     back_link()
     render_header("ارسال گزارش")
+    _check_locked_access("ارسال گزارش", "report")
     from report_sender import render_report_sender
     render_report_sender(key_suffix="main")
+
+# ================== Bottom Navigation ==================
+def _bottom_nav():
+    if "current_user" not in st.session_state:
+        return
+    st.markdown('<div class="bnav-marker"></div>', unsafe_allow_html=True)
+    cols = st.columns(3)
+    items = [("report", "📨", "گزارش"),
+             ("analytics", "💰", "تحلیل"),
+             ("upload", "📤", "آپلود")]
+    for col, (target, icon, label) in zip(cols, items):
+        with col:
+            active = "● " if page == target else ""
+            if st.button(f"{active}{icon} {label}", key=f"bnav_{target}",
+                         use_container_width=True, type="primary"):
+                st.session_state["page"] = target
+                st.rerun()
+
+
+if "current_user" in st.session_state and page == "home":
+    _bottom_nav()

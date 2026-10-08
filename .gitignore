@@ -15,3 +15,9 @@ config.ini
 contacts.json
 recipients.json
 
+
+*_backup*.xlsx
+projraked_backup_*.xlsx
+app_backup_*.py
+fix_*.py
+cleanup*.py
