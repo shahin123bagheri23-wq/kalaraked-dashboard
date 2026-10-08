@@ -278,7 +278,7 @@ def render_report_sender(key_suffix="rs"):
     st.caption("ارسال گزارش به سه گروه از طریق کانال‌های مختلف")
 
     # ================== رمز ورود ==================
-    state_key = f"report_auth_{key_suffix}"
+    state_key = "unlock_locked_pages"
     if not st.session_state.get(state_key):
         st.warning("🔒 این صفحه محافظت‌شده است. برای ورود رمز را وارد کنید.")
 
