@@ -1,4 +1,4 @@
-# فایل‌های حساس و موقت
+# فایل‌های حساس
 history.db
 backups/
 check.py
@@ -10,31 +10,30 @@ __pycache__/
 .excel_cache/
 *.pkl
 config.ini
-
-
 contacts.json
 recipients.json
 
-
+# فایل‌های بک‌آپ
 *_backup*.xlsx
 projraked_backup_*.xlsx
 app_backup_*.py
+backup_before_*
+
+# اسکریپت‌های یک‌بارمصرف
 fix_*.py
 cleanup*.py
-
-.bale_images/
-
-.bale_images/
-.bale_docs/
-*_backup.py
-fix_*.py
 check_*.py
 add_*.py
 rebuild_*.py
 replace_*.py
-
-*????? ????*
-*????????*
-backup_before_*
-static/
 apply_*.py
+
+# پوشه‌های موقت
+.bale_images/
+.bale_docs/
+static/
+
+# فایل‌های پرسنلی
+*گزارش عادی*
+*فرانچایز*
+personel*.xlsx
