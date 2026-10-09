@@ -2,13 +2,10 @@
 gatherUsageStats = false
 
 [server]
-enableStaticServing = true
 headless = true
 fileWatcherType = "none"
+enableStaticServing = false
 
 [client]
 toolbarMode = "minimal"
 showErrorDetails = true
-
-[server]
-enableStaticServing = false
