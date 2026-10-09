@@ -4,19 +4,11 @@ from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import arabic_reshaper
-from bidi.algorithm import get_display
 
-from bale_sender import _load_token, _url
+from bale_sender import _load_token, _url, _req
 import requests
 
 
-# فونت فارسی
-plt.rcParams["font.family"] = ["Tahoma", "DejaVu Sans"]
-plt.rcParams["axes.unicode_minus"] = False
 
 
 def send_photo(chat_id, file_path, caption="", token=None):
@@ -30,30 +22,13 @@ def send_photo(chat_id, file_path, caption="", token=None):
     with open(p, "rb") as f:
         files = {"photo": (p.name, f, "image/png")}
         data = {"chat_id": chat_id, "caption": caption}
-        r = requests.post(_url(token, "sendPhoto"), data=data, files=files, timeout=60)
+        r = _req("post", _url(token, "sendPhoto"), data=data, files=files, timeout=60)
     if r.status_code != 200:
         raise RuntimeError(f"Bale API error {r.status_code}: {r.text}")
     return r.json()
 
 
 
-
-def _rtl(text):
-    """متن فارسی رو برای نمایش درست آماده می‌کنه"""
-    if text is None:
-        return ""
-    try:
-        text = str(text)
-        # اگه خالی بود
-        if not text.strip():
-            return text
-        # فقط برای متن‌های دارای حروف فارسی/عربی
-        if any("\u0600" <= c <= "\u06FF" for c in text):
-            reshaped = arabic_reshaper.reshape(text)
-            return get_display(reshaped)
-        return text
-    except Exception:
-        return str(text)
 
 
 def _find_chrome():
@@ -95,7 +70,7 @@ def df_to_image(df, output_path, title="", font_size=None, cell_padding=0.15):
         font_size = 14
 
     # ── محاسبه عرض هر ستون ──
-    char_w = font_size * 0.85
+    char_w = font_size * 0.68
     col_widths = []
     for c in df.columns:
         max_len = len(str(c))
@@ -103,7 +78,7 @@ def df_to_image(df, output_path, title="", font_size=None, cell_padding=0.15):
             max_len = max(max_len, len(str(v)))
         col_widths.append(max(80, int(max_len * char_w) + 30))
 
-    total_width = max(1000, min(5000, sum(col_widths)))
+    total_width = max(760, min(5000, sum(col_widths)))
 
     header_h = 52
     row_h = 42
@@ -287,7 +262,7 @@ def send_dataframe_as_images(chat_id, df, chunk_size=50, delay_seconds=30,
 
         img_path = out_dir / f"report_{key_suffix}_{i+1}_{datetime.now():%Y%m%d_%H%M%S}.png"
         try:
-            df_to_image(chunk, img_path, title=title, font_size=10)
+            df_to_image(chunk, img_path, title=title, font_size=15)
             caption = f"{title}\n({len(chunk)} ردیف)"
             send_photo(chat_id, str(img_path), caption=caption)
             sent += 1

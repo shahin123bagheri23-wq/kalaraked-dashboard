@@ -8,16 +8,46 @@ from pathlib import Path
 BALE_API = "https://tapi.bale.ai/bot{token}/{method}"
 
 
+def _req(method, url, **kw):
+    """درخواست HTTP — در خطا، آدرس (که توکن داخلشه) نشت نمی‌کنه"""
+    try:
+        return requests.request(method, url, **kw)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Bale connection error ({type(e).__name__})") from None
+
+
+def _check(r):
+    if r.status_code != 200:
+        raise RuntimeError(f"Bale API error {r.status_code}")
+
+
+def _req(method, url, **kw):
+    """درخواست HTTP — در خطا، آدرس (که توکن داخلشه) نشت نمی‌کنه"""
+    try:
+        return requests.request(method, url, **kw)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Bale connection error ({type(e).__name__})") from None
+
+
+def _check(r):
+    if r.status_code != 200:
+        raise RuntimeError(f"Bale API error {r.status_code}")
+
+
 def _url(token, method):
     return BALE_API.format(token=token, method=method)
 
 
 def _load_token():
-    """توکن رو از config.ini می‌خونه"""
+    """توکن: اول متغیر محیطی BALE_TOKEN، بعد config.ini کنار همین فایل"""
+    import os
     import configparser
+    v = os.environ.get("BALE_TOKEN", "").strip()
+    if v:
+        return v
     cfg = configparser.ConfigParser()
-    cfg.read("config.ini", encoding="utf-8")
-    return cfg.get("BALE", "token", fallback="")
+    cfg.read(Path(__file__).parent / "config.ini", encoding="utf-8")
+    return cfg.get("BALE", "token", fallback="").strip()
 
 
 def get_me(token=None):
@@ -25,8 +55,8 @@ def get_me(token=None):
     token = token or _load_token()
     if not token:
         raise ValueError("توکن بله تنظیم نشده. در config.ini بخش [BALE] اضافه کن.")
-    r = requests.get(_url(token, "getMe"), timeout=15)
-    r.raise_for_status()
+    r = _req("get", _url(token, "getMe"), timeout=15)
+    _check(r)
     return r.json()
 
 
@@ -38,8 +68,8 @@ def get_updates(token=None, offset=None):
     params = {"timeout": 5}
     if offset is not None:
         params["offset"] = offset
-    r = requests.get(_url(token, "getUpdates"), params=params, timeout=20)
-    r.raise_for_status()
+    r = _req("get", _url(token, "getUpdates"), params=params, timeout=20)
+    _check(r)
     return r.json().get("result", [])
 
 
@@ -53,7 +83,19 @@ def send_message(chat_id, text, token=None, parse_mode="HTML"):
         "text": text,
         "parse_mode": parse_mode,
     }
-    r = requests.post(_url(token, "sendMessage"), json=payload, timeout=20)
+    r = _req("post", _url(token, "sendMessage"), json=payload, timeout=20)
+    if r.status_code != 200 and parse_mode:
+        # احتمالا HTML خراب بوده (مثلا < یا & در نام) — بدون فرمت دوباره تلاش کن
+        import re as _re
+        payload["text"] = _re.sub(r"<[^>]+>", "", str(text))
+        payload.pop("parse_mode", None)
+        r = _req("post", _url(token, "sendMessage"), json=payload, timeout=20)
+    if r.status_code != 200 and parse_mode:
+        # احتمالا HTML خراب بوده (مثلا < یا & در نام) — بدون فرمت دوباره تلاش کن
+        import re as _re
+        payload["text"] = _re.sub(r"<[^>]+>", "", str(text))
+        payload.pop("parse_mode", None)
+        r = _req("post", _url(token, "sendMessage"), json=payload, timeout=20)
     if r.status_code != 200:
         raise RuntimeError(f"Bale API error {r.status_code}: {r.text}")
     return r.json()
@@ -71,7 +113,7 @@ def send_document(chat_id, file_path, caption="", token=None):
     with open(p, "rb") as f:
         files = {"document": (p.name, f, mime or "application/octet-stream")}
         data = {"chat_id": chat_id, "caption": caption}
-        r = requests.post(_url(token, "sendDocument"), data=data, files=files, timeout=60)
+        r = _req("post", _url(token, "sendDocument"), data=data, files=files, timeout=60)
     if r.status_code != 200:
         raise RuntimeError(f"Bale API error {r.status_code}: {r.text}")
     return r.json()

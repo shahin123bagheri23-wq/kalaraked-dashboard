@@ -16,6 +16,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit_js_eval import streamlit_js_eval
+from personel_loader import load_personel
 
 try:
     from zoneinfo import ZoneInfo
@@ -202,7 +203,8 @@ REQUIRED_SALES = [SALES_BARCODE, SALES_QTY, SALES_AMOUNT, SALES_STORE]
 ACH_OK, ACH_WARN = 100, 80
 HOLD_RATE_DEFAULT = 2.0
 VALID_PAGES = {"home", "district", "store", "supervisor", "target",
-               "analytics", "upload", "shift", "trend", "report", "presentation"}
+               "analytics", "upload", "shift", "trend", "report", "presentation",
+               "my_store"}
 
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 BARCODE_LIKE_RE = r"^\d{8,}$"
@@ -546,6 +548,61 @@ st.markdown(f"""
         gap: 4px !important;
     }}
 
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+/* UI-OVERRIDE-V1 */
+@font-face { font-family: 'Vazirmatn'; font-weight: 100 500; font-display: swap;
+  src: url('app/static/Vazirmatn-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Vazirmatn'; font-weight: 600 900; font-display: swap;
+  src: url('app/static/Vazirmatn-Bold.woff2') format('woff2'); }
+
+html, body, [class*="css"], .stApp, button, input, textarea, select, label,
+p, h1, h2, h3, h4, td, th, .mcard, .ok-header, .alert-card, .app-hero, .kpi-card,
+div[data-testid="stMetric"], div[data-testid="stMarkdownContainer"] {
+    font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+}
+
+/* ---- کارت KPI رنگی ---- */
+.kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+@media (min-width: 769px) { .kpi-grid { grid-template-columns: repeat(4, 1fr); } }
+.kpi-card { background: #1a1a1f; border-radius: 14px; padding: 14px 12px; text-align: center;
+            border-right: 5px solid #6b7280; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.kpi-card .kpi-label { color: #9ca3af; font-size: .8rem; margin-bottom: 4px; }
+.kpi-card .kpi-value { color: #e5e7eb; font-size: 1.45rem; font-weight: 700; line-height: 1.25; }
+.kpi-card.green  { border-right-color: #10b981; } .kpi-card.green  .kpi-value { color: #10b981; }
+.kpi-card.yellow { border-right-color: #f59e0b; } .kpi-card.yellow .kpi-value { color: #f59e0b; }
+.kpi-card.red    { border-right-color: #E6003E; } .kpi-card.red    .kpi-value { color: #FF1F5A; }
+
+/* ---- موبایل: متن بزرگ‌تر و خواناتر ---- */
+@media (max-width: 768px) {
+  h1 { font-size: 1.25rem !important; }
+  h2 { font-size: 1.12rem !important; }
+  h3 { font-size: 1.02rem !important; }
+  div[data-testid="stMetric"] { padding: 12px 12px !important; border-radius: 14px !important; }
+  div[data-testid="stMetric"] label, div[data-testid="stMetric"] label p,
+  div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] p { font-size: .82rem !important; }
+  div[data-testid="stMetricValue"], div[data-testid="stMetricValue"] div { font-size: 1.25rem !important; font-weight: 700 !important; }
+  div[data-testid="stMetricDelta"] { font-size: .76rem !important; }
+  .mcard { padding: 14px 16px !important; border-radius: 14px !important; }
+  .mcard-title { font-size: 1.02rem !important; }
+  .mcard-sup { font-size: .84rem !important; }
+  .mcard-row { font-size: .92rem !important; padding: 5px 0 !important; }
+  .mcard-badge { font-size: .8rem !important; }
+  .alert-card { font-size: .92rem !important; }
+  .ok-header-title { font-size: 1.1rem !important; }
+  .ok-header-sub { font-size: .8rem !important; }
+  .app-section-title { font-size: 1rem !important; }
+  button[data-baseweb="tab"] { font-size: .92rem !important; }
+  div[data-testid="stButton"] > button[kind="primary"] { font-size: .85rem !important; }
+  div[data-testid="stButton"] > button[kind="secondary"] p { font-size: .92rem !important; }
+}
+/* روی لمس، افکت hover (پرش کارت) خاموش */
+@media (hover: none) {
+  div[data-testid="stButton"] > button:hover { transform: none !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -2242,11 +2299,16 @@ def render_shift_checklist(pq45, pq60, key_suffix=""):
     n45 = 0 if f45 is None else len(f45)
     n60 = 0 if f60 is None else len(f60)
 
-    tab1, tab2 = st.tabs([f"🌅 صبح ({n45})", f"🌙 عصر ({n60})"])
+    active_shift = collapse_group(
+        [f"🌅 صبح ({n45})", f"🌙 عصر ({n60})"],
+        "shift_checklist", key_suffix
+    )
 
-    for tab, df, shift_name, k in ((tab1, f45, "صبح", "morning"),
-                                    (tab2, f60, "عصر", "evening")):
-        with tab:
+    for idx_sh, df, shift_name, k in ((0, f45, "صبح", "morning"),
+                                        (1, f60, "عصر", "evening")):
+        if active_shift != idx_sh:
+            continue
+        if True:
             if df is None or df.empty:
                 st.info(f"داده‌ای برای شیفت {shift_name} وجود ندارد.")
                 continue
@@ -2539,7 +2601,19 @@ def get_upload_password():
         pw = st.secrets.get("UPLOAD_PASSWORD")
     except Exception:
         pw = None
-    return pw or os.environ.get("UPLOAD_PASSWORD")
+    if pw:
+        return pw
+    pw = os.environ.get("UPLOAD_PASSWORD")
+    if pw:
+        return pw
+    try:
+        import configparser
+        _cfg = configparser.ConfigParser()
+        _cfg.read(Path(__file__).parent / "config.ini", encoding="utf-8")
+        return (_cfg.get("ADMIN", "upload_password", fallback="")
+                or _cfg.get("ADMIN", "password", fallback="") or None)
+    except Exception:
+        return None
 
 
 def check_upload_access():
@@ -2650,6 +2724,17 @@ def render_upload():
     
 
 # ================== تارگت ==================
+def _kpi_cards(items):
+    """items: [(label, value, tone)] — tone: green / yellow / red / ''"""
+    cards = ""
+    for it in items:
+        label, value = it[0], it[1]
+        tone = it[2] if len(it) > 2 else ""
+        cards += (f'<div class="kpi-card {tone}"><div class="kpi-label">{esc(label)}</div>'
+                  f'<div class="kpi-value">{esc(value)}</div></div>')
+    st_md(f'<div class="kpi-grid">{cards}</div>')
+
+
 def render_target_kpis(t_df):
     if t_df is None or t_df.empty:
         st.info("فایل تارگت بارگذاری نشده است.")
@@ -2661,11 +2746,13 @@ def render_target_kpis(t_df):
     vals = vals[vals != 0]
     if len(vals) == 0:
         return
-    metric_row([
-        ("میانگین تحقق", f"{vals.mean():.2f}%"),
-        ("موفق (≥100%)", f"{(vals >= ACH_OK).sum():,}"),
-        ("بحرانی (<80%)", f"{(vals < ACH_WARN).sum():,}"),
-        ("کل شعب", f"{len(t_df):,}"),
+    _m = vals.mean()
+    _tone = "green" if _m >= ACH_OK else ("yellow" if _m >= ACH_WARN else "red")
+    _kpi_cards([
+        ("میانگین تحقق", f"{_m:.1f}%", _tone),
+        ("موفق (≥100%)", f"{(vals >= ACH_OK).sum():,}", "green"),
+        ("بحرانی (<80%)", f"{(vals < ACH_WARN).sum():,}", "red"),
+        ("کل شعب", f"{len(t_df):,}", ""),
     ])
 
 
@@ -3090,9 +3177,18 @@ def _render_login_gate():
             if not code_clean:
                 st.error("❌ لطفاً کد پرسنلی را وارد کنید")
             else:
+                # جستجو در فایل پرسنلی
+                personel = load_personel()
+                user_info = personel.get(code_clean, {})
                 st.session_state["current_user"] = {
                     "personnel_code": code_clean,
                     "login_time": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "name": user_info.get("name", ""),
+                    "role": user_info.get("role", "other"),
+                    "branch_code": user_info.get("branch_code", ""),
+                    "branch_name": user_info.get("branch_name", ""),
+                    "mobile": user_info.get("mobile", ""),
+                    "known": bool(user_info),
                 }
                 _log_activity(code_clean, "login", "login")
                 st.session_state["show_splash"] = True
@@ -3134,8 +3230,8 @@ def _check_locked_access(page_label, key_suffix="main"):
                 from report_sender import _get_admin_password
                 expected = _get_admin_password()
             except Exception:
-                expected = "admin1234"
-            if pw and hmac.compare_digest(pw.encode(), expected.encode()):
+                expected = ""
+            if pw and expected and hmac.compare_digest(pw.encode(), expected.encode()):
                 st.session_state["unlock_locked_pages"] = True
                 st.rerun()
             else:
@@ -3148,9 +3244,11 @@ def _check_locked_access(page_label, key_suffix="main"):
 def _passwords_disabled():
     """بررسی می‌کنه که رمزها خاموش باشن یا نه"""
     import configparser
+    if os.environ.get("DISABLE_ALL_PASSWORDS", "").strip().lower() in ("1", "true", "yes"):
+        return True
     try:
         cfg = configparser.ConfigParser()
-        cfg.read("config.ini", encoding="utf-8")
+        cfg.read(Path(__file__).parent / "config.ini", encoding="utf-8")
         return cfg.getboolean("SECURITY", "disable_all_passwords", fallback=False)
     except Exception:
         return False
@@ -3322,15 +3420,169 @@ def render_presentation_page(pq45, pq60, df60, df45, key_suffix="pres"):
         st.info("👆 یکی از بخش‌ها رو انتخاب کن.")
 
 
+
+
+# ================== صفحه «شعبه من» ==================
+def render_my_store(user_info, df60, df45, pq45, pq60, df_sales, df_target):
+    """صفحه اختصاصی کارمند/مسئول فروشگاه"""
+    branch_code = user_info.get("branch_code", "")
+    branch_name = user_info.get("branch_name", "")
+    user_name = user_info.get("name", "")
+
+    def _find_branch(df):
+        if df is None or df.empty:
+            return df
+        bc = df.get(BCODE)
+        if bc is None:
+            return df.iloc[0:0]
+        return df[df[BCODE].astype(str).str.upper() == branch_code.upper()]
+
+    b60 = _find_branch(df60)
+    b45 = _find_branch(df45)
+    b_target = None
+    if df_target is not None:
+        tc = detect_target_columns(df_target)
+        code_c = tc.get("code")
+        if code_c:
+            b_target = df_target[
+                df_target[code_c].astype(str).str.upper() == branch_code.upper()
+            ].copy()
+
+    actual_name = b60[BR].iloc[0] if not b60.empty else (branch_name or "شعبه شما")
+
+    # ── هدر ──
+    st_md(f"""
+    <div class="app-hero">
+        <h2>🏪 {actual_name}</h2>
+        <p>👤 {user_name} — کد پرسنلی: {user_info.get('personnel_code', '')}</p>
+    </div>
+    """)
+
+    if b60.empty and b45.empty:
+        st.warning(f"⚠️ اطلاعات شعبه‌ای با کد {branch_code} پیدا نشد.")
+        return
+
+    # ══════════════════════════════════════════════════
+    # ۱. تارگت و رتبه من (اول)
+    # ══════════════════════════════════════════════════
+    if b_target is not None and not b_target.empty and df_target is not None:
+        st.markdown("### 🎯 تارگت و رتبه من")
+        render_target(b_target, key_suffix=f"my_{branch_code}", all_df=df_target)
+    else:
+        st.info("ℹ️ تارگت برای شعبه شما تنظیم نشده.")
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════
+    # ۲. KPIها
+    # ══════════════════════════════════════════════════
+    st.markdown("### 📊 وضعیت کالاهای راکد")
+    total_60 = b60[VAL].sum() if not b60.empty else 0
+    total_45 = b45[VAL].sum() if not b45.empty else 0
+    count_60 = len(b60)
+    count_45 = len(b45)
+
+    c1, c2 = st.columns(2, gap="small")
+    c1.metric("💰 راکد ۶۰ روزه", money(total_60, short=True, with_unit=True))
+    c2.metric("📦 تعداد اقلام", f"{count_60:,}")
+
+    c3, c4 = st.columns(2, gap="small")
+    c3.metric("📊 راکد ۴۵ روزه", money(total_45, short=True, with_unit=True))
+    c4.metric("📋 اقلام ۴۵", f"{count_45:,}")
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════
+    # ۳. چک‌لیست شیفت من
+    # ══════════════════════════════════════════════════
+    st.markdown("### 📋 چک‌لیست شیفت من")
+    _bc = branch_code.upper()
+    my_pq60 = pd.DataFrame()
+    my_pq45 = pd.DataFrame()
+    if pq60 is not None and not pq60.empty and BCODE in pq60.columns:
+        my_pq60 = pq60[pq60[BCODE].astype(str).str.upper() == _bc].copy()
+    if pq45 is not None and not pq45.empty and BCODE in pq45.columns:
+        my_pq45 = pq45[pq45[BCODE].astype(str).str.upper() == _bc].copy()
+
+    active_my = collapse_group(
+        [f"🌅 صبح ({len(my_pq45)})", f"🌙 عصر ({len(my_pq60)})"],
+        "my_store_shift", branch_code
+    )
+
+    for idx_my, df, shift in ((0, my_pq45, "صبح"), (1, my_pq60, "عصر")):
+        if active_my != idx_my:
+            continue
+        if df.empty:
+            st.info(f"داده‌ای برای شیفت {shift} وجود ندارد.")
+            continue
+
+        st.markdown(f"**{len(df)} قلم برای شیفت {shift}**")
+        if is_mobile:
+            for _, r in df.head(30).iterrows():
+                st_md(f"""
+                <div class="mcard">
+                    <div class="mcard-title">📦 {esc(r.get(NM, ''))}</div>
+                    <div class="mcard-row"><span>بارکد</span><b>{esc(r.get(BC, ''))}</b></div>
+                    <div class="mcard-row"><span>موجودی</span><b>{_fmt_cell(r.get(QTY, 0))}</b></div>
+                    <div class="mcard-row"><span>ارزش راکد</span><b>{money(r.get(VAL, 0), short=True)}</b></div>
+                </div>
+                """)
+        else:
+            view = df[[c for c in [NM, BC, QTY, VAL] if c in df.columns]].copy()
+            view.columns = ["نام کالا", "بارکد", "موجودی", "ارزش راکد"][:len(view.columns)]
+            st.dataframe(view.head(50), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════
+    # ۴. کالاهای راکدی که فروش رفتند
+    # ══════════════════════════════════════════════════
+    st.markdown("### ✅ کالاهای راکدی که فروش رفتند")
+    if df_sales is not None and not df_sales.empty and not b60.empty:
+        matched = attach_sales(b60, df_sales)
+        sold = matched[matched[S_QTY] > 0].copy()
+        if sold.empty:
+            st.info("هنوز چیزی از اقلام راکد شما فروش نرفته.")
+        else:
+            st.metric("تعداد فروش‌رفته", f"{len(sold):,}")
+            show_table(sold, f"my_sold_{branch_code}", hide_supervisor=True,
+                       placeholder="جستجو...", title_col=NM,
+                       priority_cols=[QTY, VAL, S_QTY, S_AMT, S_REL])
+    else:
+        st.info("برای مشاهده این بخش، فایل فروش لازم است.")
+
+
+# ================== Login Check ==================
+if "current_user" not in st.session_state:
+    _render_login_gate()
+    st.stop()
+
+if st.session_state.get("show_splash"):
+    _splash_screen(st.session_state["current_user"].get("personnel_code", ""))
+    st.session_state["show_splash"] = False
+    _u = st.session_state.get("current_user", {})
+    _role = _u.get("role", "other")
+    if _role in ("store_manager", "store_staff", "store_deputy", "store_deputy2"):
+        if _u.get("branch_code"):
+            st.session_state["page"] = "my_store"
+    st.rerun()
+
+
 # ================== مسیریابی ==================
-# خواندن page از session_state (پایدار)
-# فقط از session_state — هیچ لینکی URL رو عوض نمی‌کنه
 if "page" not in st.session_state:
     st.session_state["page"] = "home"
 
 page = st.session_state.get("page", "home")
 if page not in VALID_PAGES:
     page = "home"
+
+# ── محافظت: کارمندان فقط صفحه «شعبه من» ──
+_u_check = st.session_state.get("current_user", {})
+_role_check = _u_check.get("role", "other")
+if _role_check in ("store_manager", "store_staff", "store_deputy", "store_deputy2"):
+    if _u_check.get("branch_code") and page not in ("my_store", "home"):
+        page = "my_store"
+        st.session_state["page"] = "my_store"
 
 # لاگ بازدید صفحه
 _page_log_key = f"_logged_page_{page}"
@@ -3409,6 +3661,17 @@ if page == "home":
     """)
 
     show_last_update_badge()
+
+    # ── اگه کارمند/مسئول فروشگاهه، بفرست به «شعبه من» ──
+    _u = st.session_state.get("current_user", {})
+    _role = _u.get("role", "other")
+    if _role in ("store_manager", "store_staff", "store_deputy", "store_deputy2"):
+        if _u.get("branch_code"):
+            st.info(f"👋 خوش آمدی {_u.get('name', '')}! در حال رفتن به صفحه شعبه...")
+            if st.button("🏪 برو به شعبه من", type="primary", use_container_width=True):
+                st.session_state["page"] = "my_store"
+                st.rerun()
+            st.stop()
 
     st_md('<div class="app-section-title">📌 بخش‌های اصلی</div>')
 
@@ -3604,6 +3867,12 @@ elif page == "presentation":
     render_header("پروژه پرزنتی راکد")
     show_last_update_badge()
     render_presentation_page(pq45, pq60, df60, df45, key_suffix="main")
+
+elif page == "my_store":
+    user = st.session_state.get("current_user", {})
+    render_header(f"شعبه من — {user.get('name', '')}")
+    show_last_update_badge()
+    render_my_store(user, df60, df45, pq45, pq60, df_sales, df_target)
 
 elif page == "report":
     back_link()

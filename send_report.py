@@ -1,6 +1,8 @@
 """
 گزارش مدیریتی هفتگی — تحقق شعب، سرپرست فروشگاه و سوپروایزر منطقه
 """
+import os
+import os
 import smtplib
 import ssl
 import configparser
@@ -14,7 +16,11 @@ from jinja2 import Template
 
 
 BASE_DIR = Path(__file__).parent
-EXCEL_FILE = BASE_DIR / "1405-07-15 projraked.xlsx"
+_EXCEL_NAME = "1405-07-15 projraked.xlsx"
+_DATA_DIR = Path(os.environ.get("DATA_DIR") or BASE_DIR)
+EXCEL_FILE = _DATA_DIR / _EXCEL_NAME
+if not EXCEL_FILE.exists() and (BASE_DIR / _EXCEL_NAME).exists():
+    EXCEL_FILE = BASE_DIR / _EXCEL_NAME
 CONFIG_FILE = BASE_DIR / "config.ini"
 
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
@@ -203,8 +209,11 @@ def build_report():
     if sh_summary:
         s = pd.read_excel(xls, sheet_name=sh_summary)
         s.columns = s.columns.astype(str).str.strip()
-        pct_old_col = next((c for c in s.columns if "درصد راکد" in c and "13" in c), None)
-        pct_new_col = next((c for c in s.columns if "درصد راکد" in c and "15" in c), None)
+        _pct_cols = [c for c in s.columns if "درصد راکد" in c]
+        pct_old_col = next((c for c in _pct_cols if "قبل" in c), None)
+        pct_new_col = next((c for c in _pct_cols if "فعلی" in c), None)
+        if not (pct_old_col and pct_new_col) and len(_pct_cols) >= 2:
+            pct_old_col, pct_new_col = _pct_cols[0], _pct_cols[-1]
         if pct_old_col and pct_new_col:
             old = parse_percent(s[pct_old_col]).mean()
             new = parse_percent(s[pct_new_col]).mean()
@@ -430,15 +439,19 @@ def build_report():
 
 
 # ================== ارسال ایمیل ==================
-def send_email(html, subject=None):
+def send_email(html, subject=None, recipients=None):
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE, encoding="utf-8")
 
     server = config["SMTP"]["server"]
     port = int(config["SMTP"]["port"])
-    sender = config["SMTP"]["sender_email"]
-    password = config["SMTP"]["sender_password"]
-    recipients = [r.strip() for r in config["REPORT"]["recipients"].split(",") if r.strip()]
+    sender = os.environ.get("SMTP_SENDER_EMAIL") or config["SMTP"]["sender_email"]
+    password = os.environ.get("SMTP_SENDER_PASSWORD") or config["SMTP"]["sender_password"]
+    if isinstance(recipients, str):
+        recipients = [recipients]
+    recipients = [r.strip() for r in (recipients or []) if r and r.strip()]
+    if not recipients:
+        recipients = [r.strip() for r in config["REPORT"]["recipients"].split(",") if r.strip()]
     subject = subject or config["REPORT"]["subject"]
 
     msg = MIMEMultipart("alternative")

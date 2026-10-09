@@ -21,7 +21,7 @@ def _send_emails(html, subject, recipients):
     from send_report import send_email
     if not recipients:
         raise ValueError("لیست گیرندگان خالیه")
-    return send_email(html, subject=subject)
+    return send_email(html, subject=subject, recipients=recipients)
 
 
 def _build_manager_report():
@@ -78,6 +78,18 @@ def _build_regular_report():
                   "warning": warning, "danger": danger}
 
 
+def _norm_one(s):
+    """نرمال‌سازی یک نام مثل ستون‌های اکسل (ی/ي، نیم‌فاصله، فاصله‌ها)"""
+    from send_report import normalize_name
+    return normalize_name(pd.Series([s])).iloc[0]
+
+
+def _norm_one(s):
+    """نرمال‌سازی یک نام مثل ستون‌های اکسل (ی/ي، نیم‌فاصله، فاصله‌ها)"""
+    from send_report import normalize_name
+    return normalize_name(pd.Series([s])).iloc[0]
+
+
 def _build_supervisor_report(supervisor_name):
     from send_report import (
         EXCEL_FILE, find_sheet, parse_percent, money, normalize_name, to_number
@@ -111,7 +123,7 @@ def _build_supervisor_report(supervisor_name):
     if change_col:
         t[change_col] = parse_percent(t[change_col])
 
-    sub = t[t[sup_col].astype(str).str.strip() == supervisor_name.strip()].copy()
+    sub = t[t[sup_col].astype(str).str.strip() == _norm_one(supervisor_name)].copy()
     if sub.empty:
         raise ValueError(f"برای سوپروایزر «{supervisor_name}» شعبه‌ای پیدا نشد")
 

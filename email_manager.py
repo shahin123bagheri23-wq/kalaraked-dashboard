@@ -1,10 +1,25 @@
 """مدیریت مخاطبین و لیست ایمیل‌ها"""
 import json
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 CONTACTS_FILE = BASE_DIR / "contacts.json"
 EMAILS_FILE = BASE_DIR / "recipients.json"
+
+
+def _atomic_write(path, text):
+    """اول در فایل موقت می‌نویسه، بعد جایگزین می‌کنه (خراب نشدن فایل)"""
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _atomic_write(path, text):
+    """اول در فایل موقت می‌نویسه، بعد جایگزین می‌کنه (خراب نشدن فایل)"""
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load_contacts():
@@ -19,10 +34,7 @@ def load_contacts():
 
 def save_contacts(contacts):
     data = {"contacts": list(contacts)}
-    CONTACTS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _atomic_write(CONTACTS_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_emails():
@@ -43,10 +55,7 @@ def load_emails():
 
 def save_emails(recipients, subject):
     data = {"recipients": list(recipients), "subject": subject}
-    EMAILS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _atomic_write(EMAILS_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def parse_contacts_file(file_bytes, filename="contacts.xlsx"):

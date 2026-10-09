@@ -65,7 +65,7 @@ BALE_TOKEN = get("BALE", "token", "")
 BALE_API   = f"https://tapi.bale.ai/bot{BALE_TOKEN}"
 
 # ---------------- ADMIN ----------------
-ADMIN_PASSWORD  = get("ADMIN", "password", "admin1234")
+ADMIN_PASSWORD  = get("ADMIN", "password", "")
 UPLOAD_PASSWORD = get("ADMIN", "upload_password", ADMIN_PASSWORD)
 
 # ---------------- دیباگ ----------------

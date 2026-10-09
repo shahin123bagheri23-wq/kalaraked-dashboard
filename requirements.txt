@@ -5,3 +5,5 @@ openpyxl
 plotly
 streamlit-js-eval
 jdatetime
+jinja2
+requests
