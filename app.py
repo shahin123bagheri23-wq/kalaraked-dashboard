@@ -204,7 +204,7 @@ ACH_OK, ACH_WARN = 100, 80
 HOLD_RATE_DEFAULT = 2.0
 VALID_PAGES = {"home", "district", "store", "supervisor", "target",
                "analytics", "upload", "shift", "trend", "report", "presentation",
-               "my_store"}
+               "my_store", "help", "online"}
 
 FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 BARCODE_LIKE_RE = r"^\d{8,}$"
@@ -2519,10 +2519,6 @@ def render_trend_comparison(summary60, key_suffix=""):
 def render_email_sender():
     """بخش ارسال گزارش مدیریتی از داخل داشبورد"""
     import configparser
-    import smtplib
-    import ssl
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
 
     st.markdown("### 📧 ارسال گزارش مدیریتی به مدیران")
     st.caption("گزارش تحقق شعب و عملکرد سرپرست‌ها را به ایمیل‌های مشخص ارسال کنید")
@@ -2946,24 +2942,62 @@ def render_target_trend(t_df, key_suffix=""):
         """مرتب‌سازی بر اساس (ماه, روز) — همه فرمت‌ها"""
         c_clean = str(c).translate(FA_DIGITS).replace("\u200c", " ")
         c_clean = re.sub(r"\s+", " ", c_clean)
+
+        # تلاش ۱: روز + نام ماه
         m = re.search(r"(\d+)\s*(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)", c_clean)
         if m:
             day = int(m.group(1))
             month = MONTH_ORDER.get(m.group(2), 99)
             return (month, day)
+
+        # تلاش ۲: فقط عدد (روز ماه فرض)
         m2 = re.search(r"(\d+)", c_clean)
         if m2:
             return (99, int(m2.group(1)))
+
         return (999, 999)
 
-    trend_sorted = sorted(trend_cols, key=_date_key)
+    trend_sorted_all = sorted(trend_cols, key=_date_key)
+    total_cols = len(trend_sorted_all)
+
+    # ══════════════════════════════════════════════════
+    # اسلایدر انتخاب تعداد ستون‌ها (فقط اگه > 2 تا باشه)
+    # ══════════════════════════════════════════════════
+    if total_cols > 2:
+        col_slider, col_opt = st.columns([3, 1])
+        with col_slider:
+            show_n = st.slider(
+                "📊 چند ستون آخر نمایش داده بشه؟",
+                min_value=2,
+                max_value=total_cols,
+                value=min(2, total_cols),
+                step=1,
+                key=f"trend_show_n_{key_suffix}",
+                help=f"از بین {total_cols} ستون موجود، فقط جدیدترین‌ها نمایش داده می‌شن"
+            )
+        with col_opt:
+            st.write("")
+            st.write("")
+            show_all = st.checkbox(
+                "نمایش همه",
+                key=f"trend_show_all_{key_suffix}",
+                value=False,
+            )
+            if show_all:
+                show_n = total_cols
+
+        trend_sorted = trend_sorted_all[-show_n:] if not show_all else trend_sorted_all
+    else:
+        trend_sorted = trend_sorted_all
+
+    # برچسب = نام تاریخ تمیز (مثلاً «16 شهریور»)
     labels = []
     for c in trend_sorted:
         s_clean = str(c).translate(FA_DIGITS).replace("\u200c", " ")
         s_clean = re.sub(r"\s+", " ", s_clean).strip()
         lab = re.sub(r"^درصد\s+راکد\s*", "", s_clean).strip()
+        lab = re.sub(r"\s*\d+$", "", lab).strip() if re.search(r"ماه$|شهریور$|مهر$|آبان$|آذر$|دی$|بهمن$|اسفند$", lab) else lab
         labels.append(lab if lab else s_clean)
-
 
     df = t_df[[branch_col] + trend_sorted].copy()
     df = df.set_index(branch_col)
@@ -3037,7 +3071,6 @@ def render_target_trend(t_df, key_suffix=""):
             f"trend_{key_suffix}.csv", "text/csv",
             key=f"dl_trend_{key_suffix}"
         )
-
 
 
 def render_ranking(t_df, key_suffix="", all_df=None):
@@ -3319,6 +3352,10 @@ def _render_login_gate():
                 # جستجو در فایل پرسنلی
                 personel = load_personel()
                 user_info = personel.get(code_clean, {})
+                if personel and not user_info:
+                    st.error("❌ این کد پرسنلی در سیستم ثبت نشده. با سوپروایزر یا پشتیبانی تماس بگیرید.")
+                    _log_activity(code_clean, "login_rejected", "login_rejected")
+                    st.stop()
                 st.session_state["current_user"] = {
                     "personnel_code": code_clean,
                     "login_time": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -3446,6 +3483,15 @@ else:
     if st.session_state.get("show_splash"):
         _splash_screen(st.session_state["current_user"].get("personnel_code", ""))
         st.session_state["show_splash"] = False
+        # مسئول/کارمند فروشگاه → مستقیم صفحه «شعبه من»
+        _u0 = st.session_state.get("current_user", {})
+        if (_u0.get("role") in ("store_manager", "store_staff", "store_deputy", "store_deputy2")
+                and _u0.get("branch_code")):
+            st.session_state["page"] = "my_store"
+            try:
+                st.query_params["p"] = "my_store"
+            except Exception:
+                pass
         st.rerun()
 
 
@@ -3723,24 +3769,6 @@ def render_my_store(user_info, df60, df45, pq45, pq60, df_sales, df_target):
         st.info("برای مشاهده این بخش، فایل فروش لازم است.")
 
 
-# ================== Login Check ==================
-if "current_user" not in st.session_state:
-    _render_login_gate()
-    st.stop()
-
-if st.session_state.get("show_splash"):
-    _splash_screen(st.session_state["current_user"].get("personnel_code", ""))
-    st.session_state["show_splash"] = False
-    _u = st.session_state.get("current_user", {})
-    _role = _u.get("role", "other")
-    if _role in ("store_manager", "store_staff", "store_deputy", "store_deputy2"):
-        if _u.get("branch_code"):
-            st.session_state["page"] = "my_store"
-    st.rerun()
-
-
-
-
 # ================== صفحه راهنما ==================
 def _load_help_content():
     """خواندن محتوای راهنما از فایل markdown"""
@@ -3959,6 +3987,9 @@ if page == "home":
     _nav_card("presentation", "📦", "پروژه پرزنتی راکد",
               "۱۰ قلم برتر + همه اقلام", "h_pres")
 
+    _nav_card("online", "🌐", "فروش اینترنتی و مغایرت‌گیری",
+              "عملکرد اینترنتی + ادجاست", "h_online")
+
     st_md('<div class="app-section-title">🎯 پیگیری</div>')
 
     c5, c6 = st.columns(2)
@@ -3966,6 +3997,8 @@ if page == "home":
         _nav_card("shift", "📋", "چک‌لیست شیفت", "صبح و عصر", "h5")
     with c6:
         _nav_card("trend", "📈", "روند و مقایسه", "افت و رشد", "h6")
+
+    _nav_card("help", "📖", "راهنمای کاربری", "راهنمای کامل", "h7")
 
     st_md('<div class="footer-text">ساخته شده توسط <b>شاهین باقری</b></div>')
 
@@ -4129,6 +4162,12 @@ elif page == "upload":
     render_header("آپلود فایل و تاریخچه")
     _check_locked_access("آپلود و تاریخچه", "upload")
     render_upload()
+elif page == "online":
+    back_link()
+    render_header("فروش اینترنتی و مغایرت‌گیری")
+    _check_locked_access("فروش اینترنتی و مغایرت‌گیری", "online")
+    from online_section import render_online_page
+    render_online_page(DATA_DIR)
 elif page == "presentation":
     back_link()
     render_header("پروژه پرزنتی راکد")

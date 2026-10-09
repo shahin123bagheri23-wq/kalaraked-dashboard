@@ -3,8 +3,10 @@ import threading
 import time as _time_mod
 
 
-
 # ================== خروجی فروش ==================
+# تبدیل ارقام فارسی/عربی به انگلیسی
+FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
 def load_sold_report(mtime=0):
     """خوندن شیت خروجی — گزارش فروش پروژه"""
     import pandas as pd
@@ -86,12 +88,6 @@ def _send_bale(chat_id, text):
 
 
 # ================== سازنده متن‌های بله ==================
-def _norm_one(s):
-    """نرمال‌سازی یک نام مثل ستون‌های اکسل (ی/ي، نیم‌فاصله، فاصله‌ها)"""
-    from send_report import normalize_name
-    return normalize_name(pd.Series([s])).iloc[0]
-
-
 def _norm_one(s):
     """نرمال‌سازی یک نام مثل ستون‌های اکسل (ی/ي، نیم‌فاصله، فاصله‌ها)"""
     from send_report import normalize_name
@@ -332,14 +328,17 @@ def _build_regular_bale_text():
 # ================== صفحه اصلی ==================
 
 
-
-
-
 # ================== لود منابع گزارش تصویری ==================
 def _load_source_data(source_key):
     """لود داده بر اساس منبع انتخابی — بدون نیاز به app.py"""
     import pandas as pd
     from pathlib import Path
+
+    # ── بخش «فروش اینترنتی و مغایرت‌گیری» (فایل‌های جدا) ──
+    if str(source_key).startswith(("online_", "adjust_")):
+        from online_section import load_online_source
+        return load_online_source(source_key)
+
     from send_report import (
         EXCEL_FILE, find_sheet, normalize_name, to_number, parse_percent
     )
@@ -578,6 +577,11 @@ def render_report_sender(key_suffix="rs"):
             "🎯 تارگت و رتبه‌بندی": "target",
             "📈 روند ۶۰ روزه": "summary60",
         }
+        try:
+            from online_section import ONLINE_SOURCES
+            SOURCES.update(ONLINE_SOURCES)
+        except Exception:
+            pass
 
         col_src, col_rec = st.columns([2, 2])
         with col_src:
@@ -611,6 +615,58 @@ def render_report_sender(key_suffix="rs"):
             sold_df = None
 
         # ══════════════════════════════════════════════
+        # فیلتر ستون‌های روند (برای summary60 و target)
+        # ══════════════════════════════════════════════
+        if source_key in ("summary60", "target") and sold_df is not None and not sold_df.empty:
+            import re as _re_tr
+            _MONTHS = r"(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
+
+            def _is_trend_col(c):
+                cl = str(c).translate(FA_DIGITS).replace("\u200c", " ")
+                cl = _re_tr.sub(r"\s+", " ", cl).strip()
+                return bool(_re_tr.match(rf"^درصد\s+راکد\s*\d+\s*(?:{_MONTHS})?\s*\d*$", cl))
+
+            _trend_cols = [c for c in sold_df.columns if _is_trend_col(c)]
+
+            if len(_trend_cols) > 2:
+                _MO = {"فروردین": 1, "اردیبهشت": 2, "خرداد": 3, "تیر": 4,
+                       "مرداد": 5, "شهریور": 6, "مهر": 7, "آبان": 8,
+                       "آذر": 9, "دی": 10, "بهمن": 11, "اسفند": 12}
+
+                def _date_key(c):
+                    cl = str(c).translate(FA_DIGITS).replace("\u200c", " ")
+                    cl = _re_tr.sub(r"\s+", " ", cl)
+                    m = _re_tr.search(rf"(\d+)\s*({_MONTHS})", cl)
+                    if m:
+                        return (_MO.get(m.group(2), 99), int(m.group(1)))
+                    m2 = _re_tr.search(r"(\d+)", cl)
+                    if m2:
+                        return (99, int(m2.group(1)))
+                    return (999, 999)
+
+                _trend_sorted = sorted(_trend_cols, key=_date_key)
+
+                st.markdown("**📊 انتخاب ستون‌های روند:**")
+                _cs, _co = st.columns([3, 1])
+                with _cs:
+                    _show_n = st.slider(
+                        "چند ستون آخر نمایش داده بشه؟",
+                        min_value=2, max_value=len(_trend_sorted),
+                        value=min(2, len(_trend_sorted)), step=1,
+                        key=f"tr_show_n_{key_suffix}",
+                    )
+                with _co:
+                    st.write(""); st.write("")
+                    _show_all = st.checkbox("نمایش همه", value=False,
+                                             key=f"tr_show_all_{key_suffix}")
+                    if _show_all:
+                        _show_n = len(_trend_sorted)
+
+                _keep_trend = _trend_sorted[-_show_n:] if not _show_all else _trend_sorted
+                _other_cols = [c for c in sold_df.columns if c not in _trend_cols]
+                sold_df = sold_df[_other_cols + _keep_trend].copy()
+
+        # ══════════════════════════════════════════════
         # فیلتر فروش‌رفته (فقط برای sold)
         # ══════════════════════════════════════════════
         if source_key == "sold" and sold_df is not None and not sold_df.empty:
@@ -636,8 +692,72 @@ def render_report_sender(key_suffix="rs"):
                     _existing.append(c)
             sold_df = sold_df[_existing].copy()
 
+        # ── بازچینی و فرمت ستون‌های target ──
+        if source_key == "target" and sold_df is not None and not sold_df.empty:
+            import re as _re_tc
+            _tc_fa = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+            _sup_c = next((c for c in sold_df.columns
+                          if str(c).strip() == "سوپروایزر"), None)
+            _name_c = next((c for c in sold_df.columns if "نام شعبه" in str(c)), None)
+            _shop_sup_c = next((c for c in sold_df.columns
+                               if "سرپرست فروشگاه" in str(c) or "سرپرست شعبه" in str(c)), None)
+            _raked_c = next((c for c in sold_df.columns
+                            if "ریالی راکد" in str(c) or "ریالی اقلام راکد" in str(c)), None)
+            _target_c = next((c for c in sold_df.columns
+                             if str(c).startswith("تارگت") and "تغییرات" not in str(c)), None)
+            _ach_c = next((c for c in sold_df.columns if "تحقق" in str(c)), None)
+
+            _trend_now = []
+            for c in sold_df.columns:
+                cs = str(c).translate(_tc_fa).replace("\u200c", " ")
+                cs = _re_tc.sub(r"\s+", " ", cs).strip()
+                if _re_tc.match(r"^درصد\s+راکد\s*\d+", cs):
+                    _trend_now.append(c)
+
+            _order = []
+            for _c in ([_sup_c, _name_c, _shop_sup_c, _raked_c] + _trend_now
+                       + [_target_c, _ach_c]):
+                if _c is not None and _c not in _order and _c in sold_df.columns:
+                    _order.append(_c)
+
+            if len(_order) >= 5:
+                sold_df = sold_df[_order].copy()
+
+                def _fmt_pct(v):
+                    try:
+                        n = float(v)
+                        if n != n:
+                            return "—"
+                        if abs(n) <= 1.0 and n != 0:
+                            return f"{n * 100:.2f}%"
+                        return f"{n:.2f}%"
+                    except (ValueError, TypeError):
+                        return str(v) if v is not None else "—"
+
+                for _c in sold_df.columns:
+                    cs = str(_c)
+                    if "درصد" in cs or "تحقق" in cs or ("تارگت" in cs and "تغییرات" not in cs):
+                        if sold_df[_c].dtype.kind in "fiu":
+                            sold_df[_c] = sold_df[_c].apply(_fmt_pct)
+
+            try:
+                from image_sender import set_keep_cols
+                set_keep_cols(list(sold_df.columns))
+            except (ImportError, AttributeError):
+                pass
+
+        # قالب اختصاصی عکس برای منبع‌های فروش اینترنتی/مغایرت‌گیری (بقیه: ظاهر قبلی)
+        try:
+            from image_sender import set_theme
+            set_theme(source_key)
+        except (ImportError, AttributeError):
+            pass
+
         if sold_df is None or sold_df.empty:
             st.warning(f"⚠️ داده‌ای برای «{source_label}» پیدا نشد.")
+            if str(source_key).startswith(("online_", "adjust_")):
+                st.info("فایل‌ها را از صفحه «🌐 فروش اینترنتی و مغایرت‌گیری» آپلود کنید.")
             st.stop()
 
         st.success(f"✅ {len(sold_df):,} ردیف بارگذاری شد")
@@ -685,8 +805,13 @@ def render_report_sender(key_suffix="rs"):
             # سورت
             fc3, fc4 = st.columns(2)
             _sortable = [c for c in sold_df.columns if sold_df[c].dtype == object][:6]
+            _ORIG = "— ترتیب اصلی —"
+            _is_online_src = str(source_key).startswith(("online_", "adjust_"))
+            if _is_online_src:
+                _sortable = [_ORIG] + _sortable
             with fc3:
-                _default_sort = "نام شعبه" if "نام شعبه" in _sortable else (_sortable[0] if _sortable else None)
+                _default_sort = (_ORIG if _is_online_src else
+                                 ("نام شعبه" if "نام شعبه" in _sortable else (_sortable[0] if _sortable else None)))
                 sort_choice = st.selectbox(
                     "↕️ ترتیب",
                     _sortable,
@@ -705,7 +830,7 @@ def render_report_sender(key_suffix="rs"):
 
             # سورت
             ascending = (sort_dir == "صعودی")
-            if sort_choice:
+            if sort_choice and sort_choice != _ORIG:
                 try:
                     sold_df = sold_df.sort_values(
                         sort_choice, ascending=ascending,
@@ -746,12 +871,20 @@ def render_report_sender(key_suffix="rs"):
                 key=f"per_branch_msg_{key_suffix}",
             )
 
+        compact_mode = st.checkbox(
+            "📱 حالت فشرده (مثل خروجی اکسل — بله عکس را کوچک نمی‌کند و کیفیت حفظ می‌شود)",
+            value=True, key=f"img_compact_{key_suffix}",
+            help="عکس با اندازه‌ی نهایی ساخته می‌شود. برای حفظ کیفیت، حداکثر ۶۰ ردیف در هر عکس.")
+
         sc1, sc2, sc3 = st.columns(3)
         with sc1:
             chunk_size = st.number_input("ردیف در هر عکس",
                                           min_value=5, max_value=100,
                                           value=25, step=5,
                                           key=f"chunk_{key_suffix}")
+            if compact_mode and int(chunk_size) > 60:
+                chunk_size = 60
+                st.caption("ℹ️ در حالت فشرده حداکثر ۶۰ ردیف در هر عکس.")
         with sc2:
             delay = st.number_input("فاصله (ثانیه)",
                                      min_value=2, max_value=120,
@@ -776,10 +909,10 @@ def render_report_sender(key_suffix="rs"):
                 from image_sender import df_to_image
                 Path(".bale_images").mkdir(exist_ok=True)
                 tmp_path = f".bale_images/preview_{key_suffix}.png"
-                preview_chunk = sold_df.head(int(chunk_size)).copy()
+                preview_chunk = sold_df.head(min(int(chunk_size), 60) if compact_mode else int(chunk_size)).copy()
                 df_to_image(preview_chunk, tmp_path,
                             title=f"{source_label} — پیش‌نمایش",
-                            font_size=11,
+                            font_size=11, compact=compact_mode,
                             per_branch_msg=per_branch_msg if per_branch_mode else None)
                 st.image(tmp_path, use_container_width=True)
             except Exception as e:
@@ -800,6 +933,10 @@ def render_report_sender(key_suffix="rs"):
             _mode_label = "شعبه" if _is_per_branch else "عکس"
             st.warning(f"⏳ در حال ارسال... {sent} از {total} {_mode_label}")
             st.progress(sent / max(total, 1))
+
+            # اگه قبلاً خطا داشته، به کاربر نمایش بده
+            if state.get("error"):
+                st.info(f"ℹ️ آخرین خطا: {state['error']}")
             if st.button("🛑 توقف", type="primary",
                          key=f"cancel_{key_suffix}",
                          use_container_width=True):
@@ -833,14 +970,17 @@ def render_report_sender(key_suffix="rs"):
 
                             _img_path = Path(".bale_images") / f"br_{sent+1}_{_ci+1}.png"
                             df_to_image(_chunk, str(_img_path), title=_full_title,
-                                        font_size=11, per_branch_msg=_msg)
+                                        font_size=11, per_branch_msg=_msg,
+                                        compact=st.session_state.get(f"img_compact_{key_suffix}", False))
                             _cap = f"🏪 {_branch_name} | {_msg}"
                             send_photo(target_chat_id, str(_img_path), caption=_cap)
 
                         state["sent"] = sent + 1
                     except Exception as e:
+                        # نگه‌داشتن sent برای ادامه
                         state["active"] = False
                         state["error"] = str(e)
+                        # sent قبلاً آپدیت شده، پس ادامه از اینجا
                         st.rerun()
                 else:
                     # ── حالت یک عکس کلی ──
@@ -854,12 +994,15 @@ def render_report_sender(key_suffix="rs"):
                         from image_sender import df_to_image, send_photo
                         Path(".bale_images").mkdir(exist_ok=True)
                         img_path = Path(".bale_images") / f"r_{i+1}.png"
-                        df_to_image(chunk, str(img_path), title=title, font_size=11)
+                        df_to_image(chunk, str(img_path), title=title, font_size=11,
+                                    compact=st.session_state.get(f"img_compact_{key_suffix}", False))
                         send_photo(target_chat_id, str(img_path), caption=title)
                         state["sent"] = sent + 1
                     except Exception as e:
+                        # نگه‌داشتن sent برای ادامه
                         state["active"] = False
                         state["error"] = str(e)
+                        # sent قبلاً آپدیت شده، پس ادامه از اینجا
                         st.rerun()
 
                 if state["sent"] < total:
@@ -887,18 +1030,65 @@ def render_report_sender(key_suffix="rs"):
                 st.metric("ارسال شده", f"{_sent}/{_total}")
 
         elif state and state.get("cancel"):
-            st.error(f"🛑 متوقف شد — {state.get('sent', 0)} از {state.get('total', 0)}")
-            if st.button("🗑 پاک کردن", key=f"clear2_{key_suffix}",
-                         use_container_width=True):
-                del st.session_state[state_key]
-                st.rerun()
+            _sent = state.get("sent", 0)
+            _total = state.get("total", 0)
+            _is_pb = state.get("per_branch_mode", False)
+            _lbl = "شعبه" if _is_pb else "عکس"
+
+            st.warning(f"🛑 متوقف شد — **{_sent} از {_total}** {_lbl} ارسال شد")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("▶️ ادامه",
+                             type="primary",
+                             key=f"resume_c_{key_suffix}",
+                             use_container_width=True):
+                    state["cancel"] = False
+                    state["error"] = None
+                    state["active"] = True
+                    st.rerun()
+            with c2:
+                if st.button("🗑 پاک کردن",
+                             key=f"clear2_{key_suffix}",
+                             use_container_width=True):
+                    del st.session_state[state_key]
+                    st.rerun()
 
         elif state and state.get("error"):
+            _sent = state.get("sent", 0)
+            _total = state.get("total", 0)
+            _is_pb = state.get("per_branch_mode", False)
+            _lbl = "شعبه" if _is_pb else "عکس"
+
             st.error(f"❌ {state['error']}")
-            if st.button("🗑 پاک کردن", key=f"clear3_{key_suffix}",
-                         use_container_width=True):
-                del st.session_state[state_key]
-                st.rerun()
+            st.warning(f"⚠️ ارسال متوقف شد — **{_sent} از {_total}** {_lbl} ارسال شد")
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("▶️ ادامه از جایی که قطع شد",
+                             type="primary",
+                             key=f"resume_{key_suffix}",
+                             use_container_width=True):
+                    # از sent ادامه بده
+                    state["error"] = None
+                    state["active"] = True
+                    state["cancel"] = False
+                    st.rerun()
+            with c2:
+                if st.button("🔄 شروع مجدد از اول",
+                             key=f"restart_{key_suffix}",
+                             use_container_width=True):
+                    state["sent"] = 0
+                    state["error"] = None
+                    state["active"] = True
+                    state["cancel"] = False
+                    st.rerun()
+            with c3:
+                if st.button("🗑 پاک کردن",
+                             key=f"clear3_{key_suffix}",
+                             use_container_width=True):
+                    del st.session_state[state_key]
+                    st.rerun()
 
         else:
             # دکمه‌های اصلی

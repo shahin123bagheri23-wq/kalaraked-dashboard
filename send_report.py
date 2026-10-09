@@ -2,7 +2,6 @@
 گزارش مدیریتی هفتگی — تحقق شعب، سرپرست فروشگاه و سوپروایزر منطقه
 """
 import os
-import os
 import smtplib
 import ssl
 import configparser
@@ -12,6 +11,9 @@ from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
+
+# ═══ فقط ۲ ستون آخر روند ═══
+SHOW_LAST_N_TREND = 2
 from jinja2 import Template
 
 

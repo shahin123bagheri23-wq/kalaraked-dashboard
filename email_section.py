@@ -84,12 +84,6 @@ def _norm_one(s):
     return normalize_name(pd.Series([s])).iloc[0]
 
 
-def _norm_one(s):
-    """نرمال‌سازی یک نام مثل ستون‌های اکسل (ی/ي، نیم‌فاصله، فاصله‌ها)"""
-    from send_report import normalize_name
-    return normalize_name(pd.Series([s])).iloc[0]
-
-
 def _build_supervisor_report(supervisor_name):
     from send_report import (
         EXCEL_FILE, find_sheet, parse_percent, money, normalize_name, to_number

@@ -1,4 +1,6 @@
 """لود کردن داده پرسنلی از فایل اکسل"""
+import os
+import re
 from pathlib import Path
 import pandas as pd
 
@@ -12,8 +14,7 @@ _CANDIDATE_NAMES = [
 
 def _find_personel_file():
     """پیدا کردن فایل پرسنلی در چند مسیر"""
-    import os
-    roots = [BASE_DIR, Path.cwd()]
+    roots = [BASE_DIR, Path.cwd(), Path.home() / ".kalaraked", Path("/tmp")]
     env_dir = os.environ.get("DATA_DIR")
     if env_dir:
         roots.insert(0, Path(env_dir))
@@ -60,16 +61,15 @@ def _extract_branch_name(unit_name):
     return s.strip()
 
 
-import re
-
-
 def load_personel():
     """خروجی: دیکشنری {کد پرسنلی: {...}}"""
-    if not PERSONEL_FILE.exists():
+    # هر بار دوباره پیدا می‌کنیم تا فایل تازه‌آپلودشده بدون ری‌استارت دیده شود
+    pfile = _find_personel_file()
+    if not pfile.exists():
         return {}
 
     try:
-        d = pd.read_excel(PERSONEL_FILE, sheet_name=0)
+        d = pd.read_excel(pfile, sheet_name=0)
         d.columns = d.columns.astype(str).str.strip()
 
         # پیدا کردن ستون‌ها

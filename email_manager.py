@@ -15,13 +15,6 @@ def _atomic_write(path, text):
     os.replace(tmp, path)
 
 
-def _atomic_write(path, text):
-    """اول در فایل موقت می‌نویسه، بعد جایگزین می‌کنه (خراب نشدن فایل)"""
-    tmp = Path(str(path) + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
-
-
 def load_contacts():
     if CONTACTS_FILE.exists():
         try:
