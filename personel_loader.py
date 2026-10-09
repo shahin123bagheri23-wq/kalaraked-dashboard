@@ -3,7 +3,28 @@ from pathlib import Path
 import pandas as pd
 
 BASE_DIR = Path(__file__).parent
-PERSONEL_FILE = BASE_DIR / "گزارش عادی و فرانچایز 14050715.xlsx"
+# چند مسیر ممکن
+_CANDIDATE_NAMES = [
+    "گزارش عادی و فرانچایز 14050715.xlsx",
+    "personel.xlsx",
+    "personnel.xlsx",
+]
+
+def _find_personel_file():
+    """پیدا کردن فایل پرسنلی در چند مسیر"""
+    import os
+    roots = [BASE_DIR, Path.cwd()]
+    env_dir = os.environ.get("DATA_DIR")
+    if env_dir:
+        roots.insert(0, Path(env_dir))
+    for root in roots:
+        for name in _CANDIDATE_NAMES:
+            f = root / name
+            if f.exists():
+                return f
+    return BASE_DIR / _CANDIDATE_NAMES[0]
+
+PERSONEL_FILE = _find_personel_file()
 
 
 def _role_from_serial(serial):

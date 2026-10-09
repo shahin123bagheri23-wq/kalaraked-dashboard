@@ -2721,6 +2721,86 @@ def render_upload():
                            HISTORY_DB.read_bytes(),
                            f"history_{now_tehran():%Y%m%d}.db",
                            "application/octet-stream", key="dl_db")
+
+    # ══════════════════════════════════════════════════
+    # آپلود فایل پرسنلی
+    # ══════════════════════════════════════════════════
+    st.divider()
+    st.markdown("### 👥 آپلود فایل پرسنلی")
+    st.caption("فایل اکسل با ستون‌های «کد پرسنلي، Location، سریال سمت، سریال نام واحد»")
+
+    # چک وجود فایل
+    try:
+        from personel_loader import load_personel, _find_personel_file, PERSONEL_FILE
+        _existing = _find_personel_file()
+        if _existing.exists():
+            _count = len(load_personel())
+            st.success(f"✅ فایل پرسنلی موجود — {_count} کاربر لود شده")
+            st.caption(f"📁 {_existing}")
+        else:
+            st.warning("⚠️ فایل پرسنلی آپلود نشده — کاربران با نقش «other» وارد می‌شن")
+    except Exception as e:
+        st.error(f"❌ خطا در بارگذاری: {e}")
+
+    # آپلودر
+    personel_file = st.file_uploader(
+        "📁 فایل پرسنلی (xlsx)",
+        type=["xlsx"],
+        key="upload_personel_file",
+    )
+
+    if personel_file is not None:
+        if st.button("💾 ذخیره فایل پرسنلی",
+                     use_container_width=True,
+                     key="save_personel_btn",
+                     type="primary"):
+            try:
+                # ذخیره در DATA_DIR
+                from personel_loader import _CANDIDATE_NAMES
+                target = DATA_DIR / _CANDIDATE_NAMES[0]
+
+                # بک‌آپ از فایل قبلی
+                if target.exists():
+                    _backup(target)
+
+                # نوشتن فایل جدید
+                _atomic_write(target, personel_file.getvalue())
+
+                # کش رو پاک کن
+                st.cache_data.clear()
+
+                st.success(f"✅ فایل پرسنلی ذخیره شد ({len(personel_file.getvalue())/1024:.0f} KB)")
+                st.info("🔄 حالا از منوی بالا یک بار خروج بزن و دوباره با کد پرسنلی وارد شو.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ خطا: {e}")
+
+    # پیش‌نمایش کاربران
+    try:
+        from personel_loader import load_personel
+        _personel = load_personel()
+        if _personel:
+            with st.expander(f"👥 لیست کاربران ({len(_personel)})", expanded=False):
+                # تبدیل به DataFrame
+                _rows = []
+                for code, u in _personel.items():
+                    _rows.append({
+                        "کد پرسنلی": code,
+                        "نام": u.get("name", ""),
+                        "نقش": u.get("role", ""),
+                        "کد شعبه": u.get("branch_code", ""),
+                        "نام واحد": u.get("branch_name", ""),
+                    })
+                _p_df = pd.DataFrame(_rows)
+                # توزیع نقش‌ها
+                _role_counts = _p_df["نقش"].value_counts().to_dict()
+                st.markdown("**توزیع نقش‌ها:**")
+                for r, c in _role_counts.items():
+                    st.markdown(f"- `{r}`: **{c}** نفر")
+                st.dataframe(_p_df.head(30), use_container_width=True, hide_index=True)
+                st.caption(f"👆 نمایش ۳۰ ردیف اول از {len(_p_df)}")
+    except Exception:
+        pass
     
 
 # ================== تارگت ==================
