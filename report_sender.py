@@ -1,3 +1,48 @@
+from pathlib import Path
+import threading
+import time as _time_mod
+
+
+
+# ================== خروجی فروش ==================
+def load_sold_report(mtime=0):
+    """خوندن شیت خروجی — گزارش فروش پروژه"""
+    import pandas as pd
+    from send_report import EXCEL_FILE, find_sheet, normalize_name
+
+    if not Path(EXCEL_FILE).exists():
+        return None
+    try:
+        xls = pd.ExcelFile(EXCEL_FILE)
+        sh = find_sheet(xls, "خروجی")
+        if not sh:
+            for n in xls.sheet_names:
+                if "خروجی" in str(n):
+                    sh = n
+                    break
+        if not sh:
+            return None
+        d = pd.read_excel(xls, sheet_name=sh)
+        d.columns = d.columns.astype(str).str.strip()
+        for c in d.columns:
+            if "نام شعبه" in c or "نام کالا" in c or "سوپروایزر" in c:
+                d[c] = normalize_name(d[c])
+            if "شیفت" in c or "وضعیت فروش" in c:
+                d[c] = d[c].astype(str).str.strip()
+        needed = ["نام شعبه", "بارکد", "نام کالا", "شیفت", "وضعیت فروش"]
+        available = []
+        for n in needed:
+            for c in d.columns:
+                if n == c or n in c:
+                    available.append(c)
+                    break
+        if len(available) < 3:
+            return None
+        return d[available].copy()
+    except Exception:
+        return None
+
+
 """صفحه ارسال گزارش — همه کانال‌ها در یک جا"""
 import hmac
 import os
@@ -272,6 +317,9 @@ def _build_regular_bale_text():
 
 
 # ================== صفحه اصلی ==================
+
+
+
 def render_report_sender(key_suffix="rs"):
     """صفحه ارسال گزارش — با رمز محافظت‌شده"""
     st.markdown("## 📨 ارسال گزارش")
@@ -333,10 +381,12 @@ def render_report_sender(key_suffix="rs"):
 
     st.divider()
 
-    tab_bale, tab_email, tab_contacts = st.tabs([
-        "📱 بله",
+    tab_bale, tab_email, tab_image, tab_contacts = st.tabs([
+         "📱 بله",
         "📧 ایمیل",
-        "👥 مدیریت مخاطبین",
+        "📸 گزارش تصویری",
+
+        "👥 مدیریت مخاطبین 🔒",
     ])
 
     with tab_bale:
@@ -344,6 +394,254 @@ def render_report_sender(key_suffix="rs"):
 
     with tab_email:
         _render_email_channel(supervisors, managers, regulars, key_suffix)
+
+    with tab_image:
+        st.markdown("### 📸 ارسال گزارش تصویری به بله")
+        st.caption("جدول فروش را به صورت عکس‌های ۵۰ ردیفی با فاصله ۳۰ ثانیه ارسال می‌کند")
+
+        sold_df = load_sold_report(0)
+
+        # ── فیلتر: فقط فروش‌شده‌ها ──
+        if sold_df is not None and not sold_df.empty:
+            _status_col = next((c for c in sold_df.columns
+                                if "وضعیت فروش" in c or "وضعیت" in c), None)
+            if _status_col:
+                sold_only = st.checkbox(
+                    "✅ فقط کالاهای فروش‌رفته",
+                    value=True,
+                    key=f"only_sold_{key_suffix}",
+                    help="اگه تیک برداشته بشه، همه کالاها (فروش‌رفته + بدون فروش) نمایش داده می‌شن"
+                )
+                if sold_only:
+                    sold_df = sold_df[
+                        sold_df[_status_col].astype(str).str.contains("فروش شد", na=False)
+                    ].copy().reset_index(drop=True)
+
+        # ── ترتیب ستون‌ها: نام شعبه | شیفت | بارکد | نام کالا | وضعیت فروش ──
+        if sold_df is not None and not sold_df.empty:
+            _desired_order = ["نام شعبه", "شیفت", "بارکد", "نام کالا", "وضعیت فروش"]
+            _existing = []
+            for d in _desired_order:
+                for c in sold_df.columns:
+                    if d == c or d in c:
+                        _existing.append(c)
+                        break
+            # هر ستون دیگه‌ای که مونده
+            for c in sold_df.columns:
+                if c not in _existing:
+                    _existing.append(c)
+            sold_df = sold_df[_existing].copy()
+
+        if sold_df is None or sold_df.empty:
+            st.warning("⚠️ شیت «خروجی» پیدا نشد یا خالی است.")
+        else:
+            st.success(f"✅ {len(sold_df)} ردیف از شیت «خروجی» بارگذاری شد")
+            st.dataframe(sold_df.head(20), use_container_width=True, hide_index=True)
+            st.caption(f"👆 نمایش ۲۰ ردیف اول از {len(sold_df):,}")
+
+            st.divider()
+
+            # انتخاب گیرنده
+            st.markdown("**گیرنده:**")
+            recipient_options = {"خودم (شاهین)": 1343334968}
+            for c in contacts:
+                cid = c.get("bale_chat_id")
+                if cid and cid not in recipient_options.values():
+                    recipient_options[f"{c.get('name')} — {c.get('type')}"] = cid
+
+            selected_label = st.selectbox(
+                "به کی ارسال بشه؟",
+                list(recipient_options.keys()),
+                key=f"img_recip_{key_suffix}",
+            )
+            target_chat_id = recipient_options[selected_label]
+
+            # تنظیمات
+            # سورت
+            st.markdown("**ترتیب نمایش:**")
+            sort_col1, sort_col2 = st.columns(2)
+            with sort_col1:
+                sort_options = ["نام شعبه (الفبا)", "نام شعبه (برعکس)",
+                                "شیفت", "نام کالا", "بارکد"]
+                sort_choice = st.selectbox(
+                    "بر اساس",
+                    sort_options,
+                    key=f"sort_{key_suffix}",
+                )
+            with sort_col2:
+                sort_dir = st.radio(
+                    "جهت",
+                    ["صعودی", "نزولی"],
+                    horizontal=True,
+                    key=f"sort_dir_{key_suffix}",
+                )
+
+            # اعمال سورت
+            ascending = (sort_dir == "صعودی")
+            if sort_choice == "نام شعبه (الفبا)":
+                sold_df = sold_df.sort_values("نام شعبه", ascending=ascending,
+                                              key=lambda x: x.astype(str)).reset_index(drop=True)
+            elif sort_choice == "نام شعبه (برعکس)":
+                sold_df = sold_df.sort_values("نام شعبه", ascending=not ascending,
+                                              key=lambda x: x.astype(str)).reset_index(drop=True)
+            elif sort_choice == "شیفت":
+                sold_df = sold_df.sort_values("شیفت", ascending=ascending,
+                                              key=lambda x: x.astype(str)).reset_index(drop=True)
+            elif sort_choice == "نام کالا":
+                sold_df = sold_df.sort_values("نام کالا", ascending=ascending,
+                                              key=lambda x: x.astype(str)).reset_index(drop=True)
+            elif sort_choice == "بارکد":
+                sold_df = sold_df.sort_values("بارکد", ascending=ascending,
+                                              key=lambda x: x.astype(str)).reset_index(drop=True)
+
+            st.divider()
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                chunk_size = st.number_input("تعداد ردیف در هر عکس",
+                                              min_value=10, max_value=100,
+                                              value=50, step=10,
+                                              key=f"chunk_{key_suffix}")
+            with col_b:
+                delay = st.number_input("فاصله بین عکس‌ها (ثانیه)",
+                                         min_value=5, max_value=120,
+                                         value=30, step=5,
+                                         key=f"delay_{key_suffix}")
+
+            n_total_chunks = (len(sold_df) + chunk_size - 1) // chunk_size
+
+            st.markdown("**محدوده ارسال:**")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                from_chunk = st.number_input("از عکس شماره",
+                                              min_value=1, max_value=n_total_chunks,
+                                              value=1, step=1,
+                                              key=f"from_chunk_{key_suffix}")
+            with cc2:
+                to_chunk = st.number_input("تا عکس شماره",
+                                            min_value=1, max_value=n_total_chunks,
+                                            value=n_total_chunks, step=1,
+                                            key=f"to_chunk_{key_suffix}")
+
+            if from_chunk > to_chunk:
+                st.error("⚠️ «از» باید کوچیک‌تر از «تا» باشه")
+                st.stop()
+
+            n_to_send = int(to_chunk) - int(from_chunk) + 1
+            st.info(f"📊 {n_to_send} عکس از {n_total_chunks} ارسال می‌شه "
+                    f"(زمان تقریبی: {(n_to_send-1)*int(delay)} ثانیه)")
+
+            if st.button("👁 پیش‌نمایش",
+                         key=f"img_preview_{key_suffix}",
+                         use_container_width=True):
+                try:
+                    from image_sender import df_to_image
+                    preview_idx = int(from_chunk) - 1
+                    start = preview_idx * int(chunk_size)
+                    end = min(start + int(chunk_size), len(sold_df))
+                    preview_chunk = sold_df.iloc[start:end].copy()
+                    Path(".bale_images").mkdir(exist_ok=True)
+                    tmp_path = f".bale_images/preview_{key_suffix}.png"
+                    df_to_image(preview_chunk, tmp_path,
+                                title=f"پیش‌نمایش — بخش {int(from_chunk)} از {n_total_chunks}",
+                                font_size=11)
+                    st.image(tmp_path, use_container_width=True)
+                except Exception as e:
+                    st.error(f"❌ خطا: {e}")
+
+            st.divider()
+
+            # ── ارسال تدریجی (بدون Thread) ──
+            state_key = f"sending_{key_suffix}"
+            state = st.session_state.get(state_key)
+
+            if state and state.get("active"):
+                sent = state.get("sent", 0)
+                total = state.get("total", n_to_send)
+
+                # نمایش وضعیت
+                st.warning(f"⏳ در حال ارسال... {sent} از {total} عکس")
+
+                if st.button("🛑 توقف ارسال", type="primary",
+                             key=f"cancel_{key_suffix}",
+                             use_container_width=True):
+                    state["active"] = False
+                    state["cancel"] = True
+                    st.rerun()
+
+                # ── ارسال یک عکس در هر rerun ──
+                if sent < total:
+                    i = state["from_chunk"] + sent - 1
+                    start_row = i * state["chunk_size"]
+                    end_row = min(start_row + state["chunk_size"], len(sold_df))
+                    chunk = sold_df.iloc[start_row:end_row].copy()
+                    title = f"گزارش فروش پروژه — بخش {i+1}"
+
+                    try:
+                        from image_sender import df_to_image, send_photo
+                        Path(".bale_images").mkdir(exist_ok=True)
+                        img_path = Path(".bale_images") / f"r_{i+1}.png"
+                        df_to_image(chunk, str(img_path), title=title, font_size=11)
+                        send_photo(target_chat_id, str(img_path), caption=title)
+                        state["sent"] = sent + 1
+                        state["last_msg"] = f"✅ عکس {i+1} ارسال شد"
+                    except Exception as e:
+                        state["active"] = False
+                        state["error"] = str(e)
+                        st.rerun()
+
+                    # اگه هنوز ادامه داره، صبر کن و دوباره لود
+                    if state["sent"] < total:
+                        _time_mod.sleep(state["delay"])
+                        st.rerun()
+                    else:
+                        state["active"] = False
+                        state["done"] = True
+                        st.rerun()
+
+            elif state and state.get("done"):
+                st.success(f"✅ تمام شد — {state.get('sent', 0)} عکس ارسال شد")
+                st.balloons()
+                if st.button("🗑 پاک کردن وضعیت",
+                             key=f"clear_{key_suffix}",
+                             use_container_width=True):
+                    del st.session_state[state_key]
+                    st.rerun()
+
+            elif state and state.get("cancel"):
+                st.error(f"🛑 ارسال متوقف شد — {state.get('sent', 0)} از {state.get('total', 0)} عکس")
+                if st.button("🗑 پاک کردن وضعیت",
+                             key=f"clear2_{key_suffix}",
+                             use_container_width=True):
+                    del st.session_state[state_key]
+                    st.rerun()
+
+            elif state and state.get("error"):
+                st.error(f"❌ خطا: {state['error']}")
+                if st.button("🗑 پاک کردن وضعیت",
+                             key=f"clear3_{key_suffix}",
+                             use_container_width=True):
+                    del st.session_state[state_key]
+                    st.rerun()
+
+            else:
+                if st.button("📤 شروع ارسال",
+                             type="primary",
+                             key=f"img_send_{key_suffix}",
+                             use_container_width=True):
+                    st.session_state[state_key] = {
+                        "active": True,
+                        "done": False,
+                        "cancel": False,
+                        "sent": 0,
+                        "total": n_to_send,
+                        "chunk_size": int(chunk_size),
+                        "delay": int(delay),
+                        "from_chunk": int(from_chunk),
+                        "to_chunk": int(to_chunk),
+                        "error": None,
+                    }
+                    st.rerun()
 
     with tab_contacts:
         _render_contacts_management(contacts, key_suffix)

@@ -21,3 +21,14 @@ projraked_backup_*.xlsx
 app_backup_*.py
 fix_*.py
 cleanup*.py
+
+.bale_images/
+
+.bale_images/
+.bale_docs/
+*_backup.py
+fix_*.py
+check_*.py
+add_*.py
+rebuild_*.py
+replace_*.py

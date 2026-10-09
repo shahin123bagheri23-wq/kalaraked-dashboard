@@ -2543,6 +2543,8 @@ def get_upload_password():
 
 
 def check_upload_access():
+    if _passwords_disabled():
+        return True
     pw = get_upload_password()
     if not pw:
         # بدون رمز، هر کسی که لینک را داشته باشد می‌تواند داده را جایگزین کند؛ پس دسترسی بسته می‌ماند
@@ -3110,6 +3112,8 @@ def _logout():
 
 def _check_locked_access(page_label, key_suffix="main"):
     """رمز مشترک برای سه صفحه — یک بار وارد کردن کافیه"""
+    if _passwords_disabled():
+        return True
     if st.session_state.get("unlock_locked_pages"):
         return True
 
@@ -3139,15 +3143,35 @@ def _check_locked_access(page_label, key_suffix="main"):
     st.stop()
 
 
-# ================== Login Check ==================
-if "current_user" not in st.session_state:
-    _render_login_gate()
-    st.stop()
 
-if st.session_state.get("show_splash"):
-    _splash_screen(st.session_state["current_user"].get("personnel_code", ""))
-    st.session_state["show_splash"] = False
-    st.rerun()
+
+def _passwords_disabled():
+    """بررسی می‌کنه که رمزها خاموش باشن یا نه"""
+    import configparser
+    try:
+        cfg = configparser.ConfigParser()
+        cfg.read("config.ini", encoding="utf-8")
+        return cfg.getboolean("SECURITY", "disable_all_passwords", fallback=False)
+    except Exception:
+        return False
+
+
+# ================== Login Check ==================
+if _passwords_disabled():
+    if "current_user" not in st.session_state:
+        st.session_state["current_user"] = {
+            "personnel_code": "---",
+            "login_time": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+else:
+    if "current_user" not in st.session_state:
+        _render_login_gate()
+        st.stop()
+
+    if st.session_state.get("show_splash"):
+        _splash_screen(st.session_state["current_user"].get("personnel_code", ""))
+        st.session_state["show_splash"] = False
+        st.rerun()
 
 
 
