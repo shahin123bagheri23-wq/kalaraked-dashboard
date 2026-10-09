@@ -52,7 +52,7 @@ def send_photo(chat_id, file_path, caption="", token=None):
 
 
 def _find_chrome():
-    """پیدا کردن Chrome روی سیستم — همه مسیرهای ممکن"""
+    """پیدا کردن Chrome/Chromium روی ویندوز و لینوکس"""
     from pathlib import Path
     import os
 
@@ -61,22 +61,26 @@ def _find_chrome():
     pfx86 = os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")
 
     candidates = [
-        # Chrome
-        os.path.join(local, r"Google\Chrome\Application\chrome.exe"),
-        os.path.join(pf, r"Google\Chrome\Application\chrome.exe"),
-        os.path.join(pfx86, r"Google\Chrome\Application\chrome.exe"),
-        # Edge (به عنوان fallback)
-        os.path.join(pfx86, r"Microsoft\Edge\Application\msedge.exe"),
-        os.path.join(pf, r"Microsoft\Edge\Application\msedge.exe"),
-        os.path.join(local, r"Microsoft\Edge\Application\msedge.exe"),
+        # ── لینوکس (Streamlit Cloud / Render) ──
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chrome",
+        "/snap/bin/chromium",
+        # ── ویندوز — Chrome ──
+        os.path.join(local, r"Google\\Chrome\\Application\\chrome.exe"),
+        os.path.join(pf, r"Google\\Chrome\\Application\\chrome.exe"),
+        os.path.join(pfx86, r"Google\\Chrome\\Application\\chrome.exe"),
+        # ── ویندوز — Edge ──
+        os.path.join(pfx86, r"Microsoft\\Edge\\Application\\msedge.exe"),
+        os.path.join(pf, r"Microsoft\\Edge\\Application\\msedge.exe"),
+        os.path.join(local, r"Microsoft\\Edge\\Application\\msedge.exe"),
     ]
     for c in candidates:
         if c and Path(c).exists():
             return c
     return None
-
-
-
 
 def _fmt_number(v):
     """فرمت اعداد با جداکننده هزارگان"""
