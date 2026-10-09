@@ -1,5 +1,6 @@
 """
-ارسال پیام و فایل به بله — بدون کتابخانه سنگین، فقط requests
+ارسال پیام و فایل به بله — با requests
+توکن: به صورت هاردکد + قابل تنظیم از secrets/env/config.ini
 """
 import mimetypes
 import requests
@@ -7,31 +8,8 @@ from pathlib import Path
 
 BALE_API = "https://tapi.bale.ai/bot{token}/{method}"
 
-
-def _req(method, url, **kw):
-    """درخواست HTTP — در خطا، آدرس (که توکن داخلشه) نشت نمی‌کنه"""
-    try:
-        return requests.request(method, url, **kw)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Bale connection error ({type(e).__name__})") from None
-
-
-def _check(r):
-    if r.status_code != 200:
-        raise RuntimeError(f"Bale API error {r.status_code}")
-
-
-def _req(method, url, **kw):
-    """درخواست HTTP — در خطا، آدرس (که توکن داخلشه) نشت نمی‌کنه"""
-    try:
-        return requests.request(method, url, **kw)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Bale connection error ({type(e).__name__})") from None
-
-
-def _check(r):
-    if r.status_code != 200:
-        raise RuntimeError(f"Bale API error {r.status_code}")
+# ⚠️ توکن هاردکد شده (پیش‌فرض)
+_HARDCODED_TOKEN = "1448976780:DhxKe0ttzEUJPHbmtElQDIYtvZNiorx-c3k"
 
 
 def _url(token, method):
@@ -39,70 +17,81 @@ def _url(token, method):
 
 
 def _load_token():
-    """توکن: اول متغیر محیطی BALE_TOKEN، بعد config.ini کنار همین فایل"""
+    """توکن بله — اولویت: secrets > env > config.ini > هاردکد"""
     import os
-    import configparser
-    v = os.environ.get("BALE_TOKEN", "").strip()
-    if v:
-        return v
-    cfg = configparser.ConfigParser()
-    cfg.read(Path(__file__).parent / "config.ini", encoding="utf-8")
-    return cfg.get("BALE", "token", fallback="").strip()
+    from pathlib import Path as _P
+
+    # ۱. Streamlit Secrets
+    try:
+        import streamlit as st
+        token = st.secrets.get("BALE_TOKEN")
+        if token:
+            return token
+        try:
+            token = st.secrets["BALE"]["token"]
+            if token:
+                return token
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # ۲. Environment
+    token = os.environ.get("BALE_TOKEN")
+    if token:
+        return token
+
+    # ۳. config.ini (کنار خود فایل + cwd)
+    try:
+        import configparser
+        _base = _P(__file__).resolve().parent
+        for cfg_path in [_base / "config.ini", _P.cwd() / "config.ini"]:
+            if cfg_path.exists():
+                cfg = configparser.ConfigParser()
+                cfg.read(str(cfg_path), encoding="utf-8")
+                token = cfg.get("BALE", "token", fallback="")
+                if token:
+                    return token
+    except Exception:
+        pass
+
+    # ۴. هاردکد (پشتیبان)
+    return _HARDCODED_TOKEN
 
 
 def get_me(token=None):
-    """اطلاعات ربات"""
     token = token or _load_token()
     if not token:
-        raise ValueError("توکن بله تنظیم نشده. در config.ini بخش [BALE] اضافه کن.")
-    r = _req("get", _url(token, "getMe"), timeout=15)
-    _check(r)
+        raise ValueError("توکن بله تنظیم نشده.")
+    r = requests.get(_url(token, "getMe"), timeout=15)
+    r.raise_for_status()
     return r.json()
 
 
 def get_updates(token=None, offset=None):
-    """آخرین پیام‌های دریافتی ربات (برای گرفتن chat_id)"""
     token = token or _load_token()
     if not token:
         raise ValueError("توکن بله تنظیم نشده.")
     params = {"timeout": 5}
     if offset is not None:
         params["offset"] = offset
-    r = _req("get", _url(token, "getUpdates"), params=params, timeout=20)
-    _check(r)
+    r = requests.get(_url(token, "getUpdates"), params=params, timeout=20)
+    r.raise_for_status()
     return r.json().get("result", [])
 
 
 def send_message(chat_id, text, token=None, parse_mode="HTML"):
-    """ارسال پیام متنی"""
     token = token or _load_token()
     if not token:
         raise ValueError("توکن بله تنظیم نشده.")
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": parse_mode,
-    }
-    r = _req("post", _url(token, "sendMessage"), json=payload, timeout=20)
-    if r.status_code != 200 and parse_mode:
-        # احتمالا HTML خراب بوده (مثلا < یا & در نام) — بدون فرمت دوباره تلاش کن
-        import re as _re
-        payload["text"] = _re.sub(r"<[^>]+>", "", str(text))
-        payload.pop("parse_mode", None)
-        r = _req("post", _url(token, "sendMessage"), json=payload, timeout=20)
-    if r.status_code != 200 and parse_mode:
-        # احتمالا HTML خراب بوده (مثلا < یا & در نام) — بدون فرمت دوباره تلاش کن
-        import re as _re
-        payload["text"] = _re.sub(r"<[^>]+>", "", str(text))
-        payload.pop("parse_mode", None)
-        r = _req("post", _url(token, "sendMessage"), json=payload, timeout=20)
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+    r = requests.post(_url(token, "sendMessage"), json=payload, timeout=20)
     if r.status_code != 200:
         raise RuntimeError(f"Bale API error {r.status_code}: {r.text}")
     return r.json()
 
 
 def send_document(chat_id, file_path, caption="", token=None):
-    """ارسال فایل (Excel / PDF / ...)"""
     token = token or _load_token()
     if not token:
         raise ValueError("توکن بله تنظیم نشده.")
@@ -113,17 +102,13 @@ def send_document(chat_id, file_path, caption="", token=None):
     with open(p, "rb") as f:
         files = {"document": (p.name, f, mime or "application/octet-stream")}
         data = {"chat_id": chat_id, "caption": caption}
-        r = _req("post", _url(token, "sendDocument"), data=data, files=files, timeout=60)
+        r = requests.post(_url(token, "sendDocument"), data=data, files=files, timeout=60)
     if r.status_code != 200:
         raise RuntimeError(f"Bale API error {r.status_code}: {r.text}")
     return r.json()
 
 
 def collect_chat_ids(token=None):
-    """
-    همه chat_idهایی که به ربات پیام دادن رو برمی‌گردونه.
-    خروجی: لیستی از دیکشنری با کلیدهای chat_id، name، username
-    """
     updates = get_updates(token=token)
     seen = {}
     for u in updates:
