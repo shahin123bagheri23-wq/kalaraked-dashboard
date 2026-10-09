@@ -920,18 +920,20 @@ def _prep_pq(d, default_shift="صبح"):
 
 
 def _detect_pct_columns(columns):
-    """ستون‌های «درصد راکد <عدد>» را به‌ترتیب حضور در شیت پیدا می‌کند
-    (اولی = قبل، آخری = فعلی) تا به تاریخ ثابت وابسته نباشد."""
+    """تشخیص ستون‌های «درصد راکد + روز + نام ماه» در همه فرمت‌ها"""
     found = []
     seen = set()
+    MONTHS_PAT = r"(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
+
     for c in columns:
         base = re.sub(r"\.\d+$", "", str(c)).translate(FA_DIGITS).strip()
         base = base.replace("\u200c", " ")
-        if re.fullmatch(r"درصد\s*راکد\s*\d+", base) and base not in seen:
+        base = re.sub(r"\s+", " ", base)
+        if re.match(r"^درصد\s+راکد\s*\d+\s*(?:" + MONTHS_PAT + r")?\s*\d*$", base) and base not in seen:
             seen.add(base)
             found.append(c)
-    return found
 
+    return found
 
 def _prep_summary60(d):
     d = d.copy()
@@ -1138,6 +1140,7 @@ def detect_target_columns(t):
         return {"branch": None, "code": None, "supervisor": None,
                 "zone_supervisor": None, "raked_value": None,
                 "trend": [], "target": None, "achievement": None, "change": None}
+
     cols = list(t.columns)
     shop_sup = next((c for c in cols if "سرپرست فروشگاه" in c or "سرپرست شعبه" in c), None)
     zone_sup = next((c for c in cols if c.strip() == "سوپروایزر"), None)
@@ -1145,18 +1148,26 @@ def detect_target_columns(t):
         shop_sup = next((c for c in cols if "سرپرست" in c), None)
     if not zone_sup:
         zone_sup = next((c for c in cols if "سوپروایزر" in c), None)
+
+    MONTHS_PAT = r"(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
+    trend_cols = []
+    for c in cols:
+        cl = str(c).translate(FA_DIGITS).replace("\u200c", " ").strip()
+        cl = re.sub(r"\s+", " ", cl)
+        if re.match(r"^درصد\s+راکد\s*\d+\s*(?:" + MONTHS_PAT + r")?\s*\d*$", cl):
+            trend_cols.append(c)
+
     return {
         "branch": next((c for c in cols if "نام شعبه" in c), None),
         "code": next((c for c in cols if "کد" in c and "شعبه" in c), None),
         "supervisor": shop_sup,
         "zone_supervisor": zone_sup,
         "raked_value": next((c for c in cols if "ریالی راکد" in c), None),
-        "trend": [c for c in cols if "درصد" in c and "راکد" in c],
+        "trend": trend_cols,
         "target": next((c for c in cols if c.startswith("تارگت") and "تغییرات" not in c), None),
         "achievement": next((c for c in cols if "تحقق" in c), None),
         "change": next((c for c in cols if c.startswith("تغییرات") and "تارگت" not in c), None),
     }
-
 
 def _connect():
     return closing(sqlite3.connect(HISTORY_DB))
@@ -1371,9 +1382,14 @@ def render_header(subtitle=""):
 
 
 def back_link():
+    """دکمه بازگشت — با URL history هم کار می‌کنه"""
     if st.button("⬅️ بازگشت", key=f"back_btn_{st.session_state.get('page', 'home')}",
                  type="primary"):
         st.session_state["page"] = "home"
+        try:
+            st.query_params["p"] = "home"
+        except Exception:
+            pass
         st.rerun()
 
 
@@ -1526,6 +1542,9 @@ def column_config(df):
         elif col in (VAL, S_AMT, S_REL):
             cfg[col] = st.column_config.NumberColumn(col, format="%,d",
                                                      width=calc_width(df, col, is_numeric=True))
+        elif "ریال" in str(col) or "موجودی" in str(col) or "ارزش" in str(col) or "فروش" in str(col):
+            cfg[col] = st.column_config.NumberColumn(col, format="%,d",
+                                                     width=calc_width(df, col, is_numeric=True))
         else:
             cfg[col] = st.column_config.Column(col, width=calc_width(df, col))
     return cfg
@@ -1554,6 +1573,9 @@ def summary_config(df):
             cfg[c] = st.column_config.NumberColumn(c, format="%.1f")
         elif c in ("تعداد شعب", "تعداد قلم"):
             cfg[c] = st.column_config.NumberColumn(c, format="%d")
+        elif "ریال" in c or "راکد" in c or "فروش" in c:
+            cfg[c] = st.column_config.NumberColumn(c, format="%,d",
+                                                   width=calc_width(df, c, is_numeric=True))
         else:
             cfg[c] = st.column_config.NumberColumn(c, format="%,d",
                                                    width=calc_width(df, c, is_numeric=True))
@@ -1714,6 +1736,30 @@ def collapse_group(labels, key, key_suffix=""):
                 st.rerun()
 
     return st.session_state[state_key]
+
+
+
+
+# ================== پروژه راکد (ادغام pq60 + pq45) ==================
+def build_project_raaked(pq60, pq45):
+    """ادغام pq60 و pq45 در یک دیتافریم با ستون «نوع پروژه»"""
+    frames = []
+    if pq60 is not None and not pq60.empty:
+        d = pq60.copy()
+        d.insert(0, "نوع پروژه", "۶۰ روزه")
+        frames.append(d)
+    if pq45 is not None and not pq45.empty:
+        d = pq45.copy()
+        d.insert(0, "نوع پروژه", "۴۵ روزه")
+        frames.append(d)
+    if not frames:
+        return pd.DataFrame()
+    out = pd.concat(frames, ignore_index=True)
+    # نرمال‌سازی ستون‌ها
+    for c in out.columns:
+        if "نام شعبه" in c or "نام کالا" in c or "سوپروایزر" in c:
+            out[c] = normalize_name(out[c])
+    return out
 
 
 # ================== KPI ها ==================
@@ -2897,21 +2943,27 @@ def render_target_trend(t_df, key_suffix=""):
                    "آذر": 9, "دی": 10, "بهمن": 11, "اسفند": 12}
 
     def _date_key(c):
-        """مرتب‌سازی بر اساس (ماه, روز)"""
-        c_clean = str(c).translate(FA_DIGITS)
-        # پیدا کردن روز و ماه
-        m = re.search(r"([0-9]+)\s*(شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|فروردین|اردیبهشت|خرداد|تیر|مرداد)", c_clean)
-        if not m:
-            # اگه نبود، فقط عدد
-            m2 = re.search(r"([0-9]+)", c_clean)
-            return (0, int(m2.group(1))) if m2 else (99, 99)
-        day = int(m.group(1))
-        month = MONTH_ORDER.get(m.group(2), 99)
-        return (month, day)
+        """مرتب‌سازی بر اساس (ماه, روز) — همه فرمت‌ها"""
+        c_clean = str(c).translate(FA_DIGITS).replace("\u200c", " ")
+        c_clean = re.sub(r"\s+", " ", c_clean)
+        m = re.search(r"(\d+)\s*(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)", c_clean)
+        if m:
+            day = int(m.group(1))
+            month = MONTH_ORDER.get(m.group(2), 99)
+            return (month, day)
+        m2 = re.search(r"(\d+)", c_clean)
+        if m2:
+            return (99, int(m2.group(1)))
+        return (999, 999)
 
     trend_sorted = sorted(trend_cols, key=_date_key)
-    labels = [str(c).replace("درصد راکد", "").replace("درصد  راکد", "").strip()
-              for c in trend_sorted]
+    labels = []
+    for c in trend_sorted:
+        s_clean = str(c).translate(FA_DIGITS).replace("\u200c", " ")
+        s_clean = re.sub(r"\s+", " ", s_clean).strip()
+        lab = re.sub(r"^درصد\s+راکد\s*", "", s_clean).strip()
+        labels.append(lab if lab else s_clean)
+
 
     df = t_df[[branch_col] + trend_sorted].copy()
     df = df.set_index(branch_col)
@@ -3186,6 +3238,13 @@ def _nav_card(target, icon, label, sub="", key=""):
 
     if st.button(md_text, key=f"nav_{target}_{key}", use_container_width=True):
         st.session_state["page"] = target
+        try:
+            st.query_params["p"] = target
+        except Exception:
+            try:
+                st.experimental_set_query_params(p=target)
+            except Exception:
+                pass
         st.rerun()
 
 
@@ -3276,6 +3335,37 @@ def _render_login_gate():
         st.markdown("")
         st.caption("🔒 تمام ورودها در سیستم ثبت می‌شوند.")
 
+        if st.button("📖 راهنمای کاربری", key="help_from_login",
+                     use_container_width=True):
+            st.session_state["show_help_preview"] = True
+            st.rerun()
+
+    # پیش‌نمایش راهنما در صفحه ورود
+    if st.session_state.get("show_help_preview"):
+        st.divider()
+        with st.expander("📖 راهنمای کاربری", expanded=True):
+            st.markdown("""
+            **👤 مسئول فروشگاه:**
+            بعد از ورود، صفحه «شعبه من» میاد که شامل:
+            - 🎯 تارگت و رتبه شما
+            - 📊 وضعیت کالاهای راکد
+            - 📋 چک‌لیست شیفت صبح و عصر
+            - ✅ کالاهای فروش‌رفته
+
+            **📊 سوپروایزر:**
+            داشبورد کامل با دسترسی به همه صفحات.
+
+            **❓ مشکل داری؟**
+            - صفحه سفید → `Ctrl+F5` بزن
+            - کد پرسنلی کار نکرد → با سوپروایزر تماس بگیر
+
+            **📞 پشتیبانی:**
+            شاهین باقری فرد — 09057992388
+            """)
+            if st.button("❌ بستن راهنما", key="close_help_preview"):
+                st.session_state.pop("show_help_preview", None)
+                st.rerun()
+
 
 def _logout():
     u = st.session_state.get("current_user", {})
@@ -3283,6 +3373,13 @@ def _logout():
         _log_activity(u.get("personnel_code"), "logout", "logout")
     for k in list(st.session_state.keys()):
         del st.session_state[k]
+    try:
+        st.query_params.clear()
+    except Exception:
+        try:
+            st.experimental_set_query_params()
+        except Exception:
+            pass
     st.rerun()
 
 
@@ -3468,32 +3565,26 @@ def _render_presentation_data(df, title, sales_df=None, key_suffix=""):
 
 
 def render_presentation_page(pq45, pq60, df60, df45, key_suffix="pres"):
-    st.markdown("### 📦 پروژه پرزنتی راکد")
-    st.caption("نمایش کامل ۱۰ قلم برتر هر شعبه و همه اقلام راکد")
+    st.markdown("### 📦 پروژه راکد")
+    st.caption("۲۰ قلم برتر هر شعبه (۶۰ و ۴۵ روزه) + همه اقلام راکد")
 
     active = collapse_group([
-        "🎯 ۱۰ قلم ۶۰ روزه",
-        "🎯 ۱۰ قلم ۴۵ روزه",
+        "📦 پروژه راکد (۲۰ قلم)",
         "📊 همه ۶۰ روزه",
         "📊 همه ۴۵ روزه",
     ], "pres", key_suffix)
 
     if active == 0:
-        if pq60 is None or pq60.empty:
-            st.info("داده‌های pq60 در فایل موجود نیست.")
+        project = build_project_raaked(pq60, pq45)
+        if project.empty:
+            st.info("داده‌های پروژه راکد در فایل موجود نیست.")
         else:
-            _render_presentation_data(pq60, "۱۰ قلم ۶۰ روزه",
-                                       key_suffix=f"{key_suffix}_pq60")
+            _render_presentation_data(project, "پروژه راکد (۲۰ قلم)",
+                                       key_suffix=f"{key_suffix}_project")
     elif active == 1:
-        if pq45 is None or pq45.empty:
-            st.info("داده‌های pq45 در فایل موجود نیست.")
-        else:
-            _render_presentation_data(pq45, "۱۰ قلم ۴۵ روزه",
-                                       key_suffix=f"{key_suffix}_pq45")
-    elif active == 2:
         _render_presentation_data(df60, "همه اقلام ۶۰ روزه",
                                    key_suffix=f"{key_suffix}_tbl60")
-    elif active == 3:
+    elif active == 2:
         _render_presentation_data(df45, "همه اقلام ۴۵ روزه",
                                    key_suffix=f"{key_suffix}_tbl45")
     else:
@@ -3585,18 +3676,18 @@ def render_my_store(user_info, df60, df45, pq45, pq60, df_sales, df_target):
         my_pq45 = pq45[pq45[BCODE].astype(str).str.upper() == _bc].copy()
 
     active_my = collapse_group(
-        [f"🌅 صبح ({len(my_pq45)})", f"🌙 عصر ({len(my_pq60)})"],
-        "my_store_shift", branch_code
+        [f"📦 پروژه راکد ({len(my_pq45) + len(my_pq60)} قلم)"],
+        "my_store_project", branch_code
     )
 
-    for idx_my, df, shift in ((0, my_pq45, "صبح"), (1, my_pq60, "عصر")):
+    for idx_my, df, shift in ((0, pd.concat([my_pq60, my_pq45], ignore_index=True) if (not my_pq60.empty or not my_pq45.empty) else pd.DataFrame(), "پروژه"),):
         if active_my != idx_my:
             continue
         if df.empty:
-            st.info(f"داده‌ای برای شیفت {shift} وجود ندارد.")
+            st.info("داده‌ای برای پروژه راکد وجود ندارد.")
             continue
 
-        st.markdown(f"**{len(df)} قلم برای شیفت {shift}**")
+        st.markdown(f"**{len(df)} قلم پروژه راکد**")
         if is_mobile:
             for _, r in df.head(30).iterrows():
                 st_md(f"""
@@ -3648,13 +3739,105 @@ if st.session_state.get("show_splash"):
     st.rerun()
 
 
-# ================== مسیریابی ==================
-if "page" not in st.session_state:
-    st.session_state["page"] = "home"
 
-page = st.session_state.get("page", "home")
+
+# ================== صفحه راهنما ==================
+def _load_help_content():
+    """خواندن محتوای راهنما از فایل markdown"""
+    for fname in ["راهنمای_کاربری.md", "README.md"]:
+        fpath = Path(fname)
+        if fpath.exists():
+            try:
+                return fpath.read_text(encoding="utf-8")
+            except Exception:
+                continue
+    return "راهنما در دسترس نیست."
+
+
+def render_help_page():
+    """نمایش صفحه راهنما"""
+    st.markdown("### 📖 راهنمای کاربری")
+    content = _load_help_content()
+
+    with st.expander("👤 راهنمای مسئول فروشگاه", expanded=True):
+        st.markdown("""
+        **بعد از ورود، مستقیم به صفحه «شعبه من» می‌ری.**
+
+        **۱. تارگت و رتبه من** — میانگین تحقق + رتبه بین ۷۱ شعبه
+        **۲. وضعیت کالاهای راکد** — ارزش و تعداد اقلام ۶۰ و ۴۵ روزه
+        **۳. چک‌لیست شیفت من** — صبح و عصر
+        **۴. کالاهای فروش‌رفته** — لیست کالاهای فروش‌رفته
+        """)
+
+    with st.expander("📊 راهنمای سوپروایزر"):
+        st.markdown("""
+        **اگه سوپروایزر منطقه‌ای (کد `787`)، داشبورد کامل رو می‌بینی.**
+
+        **صفحه‌های مهم:**
+        - 👤 عملکرد سوپروایزرها
+        - 📊 عملکرد دیستریکت
+        - 📋 چک‌لیست شیفت
+        """)
+
+    with st.expander("❓ سوالات پرتکرار"):
+        st.markdown("""
+        **کد پرسنلی رو نمی‌دونم؟** از HR یا سوپروایزر خودت بپرس.
+
+        **صفحه سفیده؟** `Ctrl+F5` بزن.
+
+        **کد پرسنلی کار نکرد؟** با سوپروایزر تماس بگیر.
+
+        **داشبورد کند بالا میاد؟** بار اول ۳۰ ثانیه، بارهای بعد سریع‌تر.
+
+        **تارگت شعبه من نیست؟** با سوپروایزر هماهنگ کن.
+
+        **کالاها آپدیت نمی‌شن؟** داده‌ها دستی توسط پشتیبانی آپدیت می‌شن.
+
+        **چطور خارج شم؟** دکمه 🚪 خروج بالای صفحه.
+        """)
+
+    with st.expander("📞 تماس با پشتیبانی"):
+        st.markdown("""
+        **شاهین باقری فرد**
+        - 📱 تلفن: 09057992388
+        - 🆔 کد پرسنلی: 905939
+        - 🏢 واحد: پشتیبانی زنجیره تامین دیستریکت خرم آباد
+        """)
+
+    st.divider()
+    with st.expander("📄 متن کامل راهنما"):
+        st.markdown(content)
+
+
+# ================== مسیریابی ==================
+# اول از URL بخون، بعد از session_state
+try:
+    _qp_page = st.query_params.get("p", None)
+except Exception:
+    _qp = st.experimental_get_query_params().get("p", [None])
+    _qp_page = _qp[0] if _qp else None
+
+if _qp_page and _qp_page in VALID_PAGES:
+    # URL تعیین‌کننده‌ست
+    page = _qp_page
+    st.session_state["page"] = page
+else:
+    # fallback: session_state
+    page = st.session_state.get("page", "home")
+
 if page not in VALID_PAGES:
     page = "home"
+
+# sync URL با page فعلی (اگه فرق داشت)
+try:
+    _current_qp = st.query_params.get("p", None)
+    if _current_qp != page:
+        st.query_params["p"] = page
+except Exception:
+    try:
+        st.experimental_set_query_params(p=page)
+    except Exception:
+        pass
 
 # ── محافظت: کارمندان فقط صفحه «شعبه من» ──
 _u_check = st.session_state.get("current_user", {})
@@ -3663,6 +3846,10 @@ if _role_check in ("store_manager", "store_staff", "store_deputy", "store_deputy
     if _u_check.get("branch_code") and page not in ("my_store", "home"):
         page = "my_store"
         st.session_state["page"] = "my_store"
+        try:
+            st.query_params["p"] = "my_store"
+        except Exception:
+            pass
 
 # لاگ بازدید صفحه
 _page_log_key = f"_logged_page_{page}"
@@ -3954,6 +4141,11 @@ elif page == "my_store":
     show_last_update_badge()
     render_my_store(user, df60, df45, pq45, pq60, df_sales, df_target)
 
+elif page == "help":
+    back_link()
+    render_header("راهنمای کاربری")
+    render_help_page()
+
 elif page == "report":
     back_link()
     render_header("ارسال گزارش")
@@ -3976,6 +4168,10 @@ def _bottom_nav():
             if st.button(f"{active}{icon} {label}", key=f"bnav_{target}",
                          use_container_width=True, type="primary"):
                 st.session_state["page"] = target
+                try:
+                    st.query_params["p"] = target
+                except Exception:
+                    pass
                 st.rerun()
 
 

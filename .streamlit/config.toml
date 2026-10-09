@@ -9,3 +9,6 @@ fileWatcherType = "none"
 [client]
 toolbarMode = "minimal"
 showErrorDetails = true
+
+[server]
+enableStaticServing = false

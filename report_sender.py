@@ -389,6 +389,29 @@ def _load_source_data(source_key):
     if source_key == "pq45":
         return _read(find_sheet(xls, "pq45"))
 
+    if source_key == "project":
+        d60 = _read(find_sheet(xls, "pq60"))
+        d45 = _read(find_sheet(xls, "pq45"))
+        frames = []
+        if d60 is not None and not d60.empty:
+            d60 = d60.copy()
+            d60.insert(0, "نوع پروژه", "۶۰ روزه")
+            frames.append(d60)
+        if d45 is not None and not d45.empty:
+            d45 = d45.copy()
+            d45.insert(0, "نوع پروژه", "۴۵ روزه")
+            frames.append(d45)
+        if not frames:
+            return None
+        import pandas as _pd
+        out = _pd.concat(frames, ignore_index=True)
+        for c in out.columns:
+            if "نام شعبه" in c or "نام کالا" in c or "سوپروایزر" in c:
+                out[c] = normalize_name(out[c])
+            if "شیفت" in c:
+                out[c] = out[c].astype(str).str.strip()
+        return out
+
     # ── خلاصه ۶۰ روزه ──
     if source_key == "summary60":
         return _read(find_sheet(xls, "60 روزه"))
@@ -450,7 +473,19 @@ def render_report_sender(key_suffix="rs"):
     st.caption("ارسال گزارش به سه گروه از طریق کانال‌های مختلف")
 
     # ================== رمز ورود ==================
+    # اگه رمزها خاموشه، مستقیم رد شو
+    try:
+        import configparser as _cfg_pw
+        _c_pw = _cfg_pw.ConfigParser()
+        _c_pw.read("config.ini", encoding="utf-8")
+        _pw_disabled = _c_pw.getboolean("SECURITY", "disable_all_passwords", fallback=False)
+    except Exception:
+        _pw_disabled = False
+
     state_key = "unlock_locked_pages"
+    if _pw_disabled:
+        st.session_state[state_key] = True
+
     if not st.session_state.get(state_key):
         st.warning("🔒 این صفحه محافظت‌شده است. برای ورود رمز را وارد کنید.")
 
@@ -527,52 +562,63 @@ def render_report_sender(key_suffix="rs"):
             st.warning("⚠️ این قابلیت موقتاً غیرفعال شده است.")
             st.stop()
 
-        st.markdown("### 📸 ارسال گزارش تصویری به بله")
+        st.markdown("### 📸 گزارش تصویری")
+        st.caption("یک منبع انتخاب کن، فیلتر بزن، و به بله بفرست")
 
         # ══════════════════════════════════════════════
-        # انتخاب منبع داده
+        # مرحله ۱: منبع داده
         # ══════════════════════════════════════════════
         SOURCES = {
+            "📦 پروژه راکد (۲۰ قلم — ۶۰ و ۴۵ روزه)": "project",
             "🛒 خروجی فروش (کالاهای فروش‌رفته)": "sold",
             "📦 همه اقلام راکد ۶۰ روزه": "tbl60",
             "📦 همه اقلام راکد ۴۵ روزه": "tbl45",
-            "🎯 ۱۰ قلم برتر ۶۰ روزه (عصر)": "pq60",
-            "🎯 ۱۰ قلم برتر ۴۵ روزه (صبح)": "pq45",
             "🏪 خلاصه شعب": "branches",
             "👤 خلاصه سوپروایزرها": "supervisors",
             "🎯 تارگت و رتبه‌بندی": "target",
             "📈 روند ۶۰ روزه": "summary60",
         }
 
-        source_label = st.selectbox(
-            "📁 انتخاب منبع داده",
-            list(SOURCES.keys()),
-            key=f"img_source_{key_suffix}",
-        )
+        col_src, col_rec = st.columns([2, 2])
+        with col_src:
+            source_label = st.selectbox(
+                "📁 منبع داده",
+                list(SOURCES.keys()),
+                key=f"img_source_{key_suffix}",
+            )
         source_key = SOURCES[source_label]
 
-        # ══════════════════════════════════════════════
-        # لود داده بر اساس منبع
-        # ══════════════════════════════════════════════
-        sold_df = None
+        # گیرنده
+        recipient_options = {"👤 خودم (شاهین)": 1343334968}
+        for c in contacts:
+            cid = c.get("bale_chat_id")
+            if cid and cid not in recipient_options.values():
+                recipient_options[f"{c.get('name')} — {c.get('type')}"] = cid
 
+        with col_rec:
+            selected_recip = st.selectbox(
+                "📬 گیرنده",
+                list(recipient_options.keys()),
+                key=f"img_recip_{key_suffix}",
+            )
+        target_chat_id = recipient_options[selected_recip]
+
+        # لود داده
         try:
             sold_df = _load_source_data(source_key)
         except Exception as e:
             st.error(f"خطا در بارگذاری: {e}")
             sold_df = None
 
-        # ── فیلتر فروش‌رفته فقط برای «خروجی فروش» ──
+        # ══════════════════════════════════════════════
+        # فیلتر فروش‌رفته (فقط برای sold)
+        # ══════════════════════════════════════════════
         if source_key == "sold" and sold_df is not None and not sold_df.empty:
             _status_col = next((c for c in sold_df.columns
                                 if "وضعیت فروش" in c or "وضعیت" in c), None)
             if _status_col:
-                sold_only = st.checkbox(
-                    "✅ فقط کالاهای فروش‌رفته",
-                    value=True,
-                    key=f"only_sold_{key_suffix}",
-                )
-                if sold_only:
+                if st.checkbox("✅ فقط کالاهای فروش‌رفته", value=True,
+                               key=f"only_sold_{key_suffix}"):
                     sold_df = sold_df[
                         sold_df[_status_col].astype(str).str.contains("فروش شد", na=False)
                     ].copy().reset_index(drop=True)
@@ -590,135 +636,219 @@ def render_report_sender(key_suffix="rs"):
                     _existing.append(c)
             sold_df = sold_df[_existing].copy()
 
-        # ══════════════════════════════════════════════
-        # بررسی داده
-        # ══════════════════════════════════════════════
         if sold_df is None or sold_df.empty:
             st.warning(f"⚠️ داده‌ای برای «{source_label}» پیدا نشد.")
-        else:
-            st.success(f"✅ {len(sold_df):,} ردیف بارگذاری شد")
-            st.dataframe(sold_df.head(15), use_container_width=True, hide_index=True)
-            st.caption(f"👆 نمایش ۱۵ ردیف اول از {len(sold_df):,}")
+            st.stop()
 
-            st.divider()
+        st.success(f"✅ {len(sold_df):,} ردیف بارگذاری شد")
+        st.divider()
 
-            # گیرنده
-            st.markdown("**گیرنده:**")
-            recipient_options = {"خودم (شاهین)": 1343334968}
-            for c in contacts:
-                cid = c.get("bale_chat_id")
-                if cid and cid not in recipient_options.values():
-                    recipient_options[f"{c.get('name')} — {c.get('type')}"] = cid
+        # ══════════════════════════════════════════════
+        # مرحله ۲: فیلترها (expandable)
+        # ══════════════════════════════════════════════
+        # چک کن ستون سرپرست وجود داره
+        _sup_col = next((c for c in sold_df.columns
+                         if "سوپروایزر" in c or "سرپرست" in c), None)
+        _branch_col = next((c for c in sold_df.columns if "نام شعبه" in c), None)
 
-            selected_label = st.selectbox(
-                "به کی ارسال بشه؟",
-                list(recipient_options.keys()),
-                key=f"img_recip_{key_suffix}",
-            )
-            target_chat_id = recipient_options[selected_label]
+        with st.expander("🎛 فیلترها (سرپرست، شعبه، سورت)", expanded=False):
+            fc1, fc2 = st.columns(2)
 
-            # سورت (فقط برای منابعی که ستون‌های استاندارد دارن)
-            st.markdown("**ترتیب نمایش:**")
-            sort_col1, sort_col2 = st.columns(2)
-            with sort_col1:
-                _sortable = [c for c in sold_df.columns if sold_df[c].dtype == object][:6]
+            # فیلتر سرپرست
+            selected_sup = "همه"
+            if _sup_col:
+                sup_list = ["همه"] + sorted(
+                    sold_df[_sup_col].dropna().astype(str).unique().tolist()
+                )
+                with fc1:
+                    selected_sup = st.selectbox(
+                        "👤 سوپروایزر",
+                        sup_list,
+                        key=f"filter_sup_{key_suffix}",
+                    )
+
+            # فیلتر شعبه (بر اساس سرپرست انتخاب‌شده)
+            selected_branch = "همه"
+            if _branch_col:
+                if selected_sup != "همه" and _sup_col:
+                    _sub = sold_df[sold_df[_sup_col].astype(str) == selected_sup]
+                    branch_list = ["همه"] + sorted(_sub[_branch_col].dropna().astype(str).unique().tolist())
+                else:
+                    branch_list = ["همه"] + sorted(sold_df[_branch_col].dropna().astype(str).unique().tolist())
+                with fc2:
+                    selected_branch = st.selectbox(
+                        "🏪 شعبه",
+                        branch_list,
+                        key=f"filter_branch_{key_suffix}",
+                    )
+
+            # سورت
+            fc3, fc4 = st.columns(2)
+            _sortable = [c for c in sold_df.columns if sold_df[c].dtype == object][:6]
+            with fc3:
+                _default_sort = "نام شعبه" if "نام شعبه" in _sortable else (_sortable[0] if _sortable else None)
                 sort_choice = st.selectbox(
-                    "بر اساس",
-                    _sortable if _sortable else sold_df.columns.tolist()[:5],
+                    "↕️ ترتیب",
+                    _sortable,
+                    index=_sortable.index(_default_sort) if _default_sort in _sortable else 0,
                     key=f"sort_{key_suffix}",
                 )
-            with sort_col2:
+            with fc4:
                 sort_dir = st.radio("جهت", ["صعودی", "نزولی"],
                                     horizontal=True, key=f"sort_dir_{key_suffix}")
 
+            # اعمال فیلترها
+            if selected_sup != "همه" and _sup_col:
+                sold_df = sold_df[sold_df[_sup_col].astype(str) == selected_sup]
+            if selected_branch != "همه" and _branch_col:
+                sold_df = sold_df[sold_df[_branch_col].astype(str) == selected_branch]
+
+            # سورت
             ascending = (sort_dir == "صعودی")
-            try:
-                sold_df = sold_df.sort_values(
-                    sort_choice, ascending=ascending,
-                    key=lambda x: x.astype(str)
-                ).reset_index(drop=True)
-            except Exception:
-                pass
-
-            st.divider()
-
-            # تنظیمات
-            col_a, col_b = st.columns(2)
-            with col_a:
-                chunk_size = st.number_input("تعداد ردیف در هر عکس",
-                                              min_value=5, max_value=100,
-                                              value=25, step=5,
-                                              key=f"chunk_{key_suffix}")
-            with col_b:
-                delay = st.number_input("فاصله بین عکس‌ها (ثانیه)",
-                                         min_value=2, max_value=120,
-                                         value=5, step=1,
-                                         key=f"delay_{key_suffix}")
-
-            n_total_chunks = (len(sold_df) + chunk_size - 1) // chunk_size
-
-            st.markdown("**محدوده ارسال:**")
-            cc1, cc2 = st.columns(2)
-            with cc1:
-                from_chunk = st.number_input("از عکس شماره",
-                                              min_value=1, max_value=n_total_chunks,
-                                              value=1, step=1,
-                                              key=f"from_chunk_{key_suffix}")
-            with cc2:
-                to_chunk = st.number_input("تا عکس شماره",
-                                            min_value=1, max_value=n_total_chunks,
-                                            value=n_total_chunks, step=1,
-                                            key=f"to_chunk_{key_suffix}")
-
-            if from_chunk > to_chunk:
-                st.error("⚠️ «از» باید کوچیک‌تر از «تا» باشه")
-                st.stop()
-
-            n_to_send = int(to_chunk) - int(from_chunk) + 1
-            st.info(f"📊 {n_to_send} عکس از {n_total_chunks} — "
-                    f"زمان: {(n_to_send-1)*int(delay)} ثانیه")
-
-            # پیش‌نمایش
-            if st.button("👁 پیش‌نمایش", key=f"img_preview_{key_suffix}",
-                         use_container_width=True):
+            if sort_choice:
                 try:
-                    from image_sender import df_to_image
-                    preview_idx = int(from_chunk) - 1
-                    start_row = preview_idx * int(chunk_size)
-                    end_row = min(start_row + int(chunk_size), len(sold_df))
-                    preview_chunk = sold_df.iloc[start_row:end_row].copy()
-                    Path(".bale_images").mkdir(exist_ok=True)
-                    tmp_path = f".bale_images/preview_{key_suffix}.png"
-                    df_to_image(preview_chunk, tmp_path,
-                                title=f"{source_label} — بخش {int(from_chunk)}",
-                                font_size=11)
-                    st.image(tmp_path, use_container_width=True)
-                except Exception as e:
-                    st.error(f"❌ خطا: {e}")
+                    sold_df = sold_df.sort_values(
+                        sort_choice, ascending=ascending,
+                        key=lambda x: x.astype(str)
+                    ).reset_index(drop=True)
+                except Exception:
+                    pass
 
-            st.divider()
+        # نمایش تعداد نهایی
+        st.info(f"📊 **{len(sold_df):,} ردیف** پس از فیلتر — "
+                f"**{sold_df[_branch_col].nunique() if _branch_col else '—'} شعبه**")
 
-            # ارسال
-            state_key = f"sending_{key_suffix}"
-            state = st.session_state.get(state_key)
+        # پیش‌نمایش
+        with st.expander("👁 پیش‌نمایش داده (۱۵ ردیف اول)", expanded=False):
+            st.dataframe(sold_df.head(15), use_container_width=True, hide_index=True)
 
-            if state and state.get("active"):
-                sent = state.get("sent", 0)
-                total = state.get("total", n_to_send)
-                st.warning(f"⏳ در حال ارسال... {sent} از {total}")
-                if st.button("🛑 توقف ارسال", type="primary",
-                             key=f"cancel_{key_suffix}",
-                             use_container_width=True):
-                    state["cancel"] = True
-                    st.rerun()
+        st.divider()
 
-                # ارسال یک عکس در هر rerun
-                if sent < total and not state.get("cancel"):
+        # ══════════════════════════════════════════════
+        # مرحله ۳: تنظیمات ارسال
+        # ══════════════════════════════════════════════
+        st.markdown("#### ⚙️ تنظیمات ارسال")
+
+        # حالت ارسال
+        send_mode = st.radio(
+            "حالت ارسال",
+            ["📄 یک عکس کلی", "🏪 جدا برای هر شعبه"],
+            horizontal=True,
+            key=f"send_mode_{key_suffix}",
+        )
+        per_branch_mode = (send_mode == "🏪 جدا برای هر شعبه")
+
+        per_branch_msg = "لطفاً اقدام به پالت چینی نمایید"
+        if per_branch_mode:
+            per_branch_msg = st.text_input(
+                "پیام روی هر شعبه:",
+                value=per_branch_msg,
+                key=f"per_branch_msg_{key_suffix}",
+            )
+
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            chunk_size = st.number_input("ردیف در هر عکس",
+                                          min_value=5, max_value=100,
+                                          value=25, step=5,
+                                          key=f"chunk_{key_suffix}")
+        with sc2:
+            delay = st.number_input("فاصله (ثانیه)",
+                                     min_value=2, max_value=120,
+                                     value=5, step=1,
+                                     key=f"delay_{key_suffix}")
+        with sc3:
+            if not per_branch_mode:
+                n_total = (len(sold_df) + chunk_size - 1) // chunk_size
+                from_chunk = st.number_input("از عکس", min_value=1, max_value=n_total,
+                                              value=1, step=1, key=f"from_chunk_{key_suffix}")
+            else:
+                from_chunk = 1
+
+        if not per_branch_mode:
+            n_to_send = (len(sold_df) + chunk_size - 1) // chunk_size
+            st.info(f"📊 **{n_to_send} عکس** ارسال می‌شه — زمان: {(n_to_send-1)*int(delay)} ثانیه")
+
+        # پیش‌نمایش عکس اول
+        if st.button("👁 پیش‌نمایش عکس", key=f"img_preview_{key_suffix}",
+                     use_container_width=True):
+            try:
+                from image_sender import df_to_image
+                Path(".bale_images").mkdir(exist_ok=True)
+                tmp_path = f".bale_images/preview_{key_suffix}.png"
+                preview_chunk = sold_df.head(int(chunk_size)).copy()
+                df_to_image(preview_chunk, tmp_path,
+                            title=f"{source_label} — پیش‌نمایش",
+                            font_size=11,
+                            per_branch_msg=per_branch_msg if per_branch_mode else None)
+                st.image(tmp_path, use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ {e}")
+
+        st.divider()
+
+        # ══════════════════════════════════════════════
+        # مرحله ۴: ارسال
+        # ══════════════════════════════════════════════
+        state_key = f"sending_{key_suffix}"
+        state = st.session_state.get(state_key)
+
+        if state and state.get("active"):
+            sent = state.get("sent", 0)
+            total = state.get("total", 0)
+            _is_per_branch = state.get("per_branch_mode", False)
+            _mode_label = "شعبه" if _is_per_branch else "عکس"
+            st.warning(f"⏳ در حال ارسال... {sent} از {total} {_mode_label}")
+            st.progress(sent / max(total, 1))
+            if st.button("🛑 توقف", type="primary",
+                         key=f"cancel_{key_suffix}",
+                         use_container_width=True):
+                state["cancel"] = True
+                st.rerun()
+
+            if sent < total and not state.get("cancel"):
+                if _is_per_branch:
+                    # ── حالت جدا برای هر شعبه ──
+                    try:
+                        _branch_names = state["branch_names"]
+                        _branch_name = _branch_names[sent]
+                        _chunk_size = state["chunk_size"]
+                        _msg = state["per_branch_msg"]
+                        _title = state["source_label"]
+
+                        # ردیف‌های این شعبه
+                        _branch_df = sold_df[sold_df[_branch_col] == _branch_name].reset_index(drop=True)
+                        _n_rows = len(_branch_df)
+                        _n_chunks = (_n_rows + _chunk_size - 1) // _chunk_size
+
+                        from image_sender import df_to_image, send_photo
+                        Path(".bale_images").mkdir(exist_ok=True)
+
+                        for _ci in range(_n_chunks):
+                            _start = _ci * _chunk_size
+                            _end = min(_start + _chunk_size, _n_rows)
+                            _chunk = _branch_df.iloc[_start:_end].copy()
+                            _part = f" (بخش {_ci+1}/{_n_chunks})" if _n_chunks > 1 else ""
+                            _full_title = f"{_title} — {_branch_name}{_part}"
+
+                            _img_path = Path(".bale_images") / f"br_{sent+1}_{_ci+1}.png"
+                            df_to_image(_chunk, str(_img_path), title=_full_title,
+                                        font_size=11, per_branch_msg=_msg)
+                            _cap = f"🏪 {_branch_name} | {_msg}"
+                            send_photo(target_chat_id, str(_img_path), caption=_cap)
+
+                        state["sent"] = sent + 1
+                    except Exception as e:
+                        state["active"] = False
+                        state["error"] = str(e)
+                        st.rerun()
+                else:
+                    # ── حالت یک عکس کلی ──
                     i = state["from_chunk"] + sent - 1
                     start_row = i * state["chunk_size"]
                     end_row = min(start_row + state["chunk_size"], len(sold_df))
                     chunk = sold_df.iloc[start_row:end_row].copy()
-                    title = f"{state.get('source_label', 'گزارش')} — بخش {i+1}"
+                    title = f"{state['source_label']} — بخش {i+1}"
 
                     try:
                         from image_sender import df_to_image, send_photo
@@ -732,72 +862,99 @@ def render_report_sender(key_suffix="rs"):
                         state["error"] = str(e)
                         st.rerun()
 
-                    if state["sent"] < total:
-                        _time_mod.sleep(state["delay"])
-                        st.rerun()
-                    else:
-                        state["active"] = False
-                        state["done"] = True
-                        st.rerun()
+                if state["sent"] < total:
+                    _time_mod.sleep(state["delay"])
+                    st.rerun()
+                else:
+                    state["active"] = False
+                    state["done"] = True
+                    st.rerun()
 
-            elif state and state.get("done"):
-                st.success(f"✅ تمام شد — {state.get('sent', 0)} عکس ارسال شد")
-                st.balloons()
-                if st.button("🗑 پاک کردن وضعیت", key=f"clear_{key_suffix}",
+        elif state and state.get("done"):
+            _sent = state.get("sent", 0)
+            _total = state.get("total", 0)
+            _is_pb = state.get("per_branch_mode", False)
+            _lbl = "شعبه" if _is_pb else "عکس"
+            st.success(f"✅ **تمام شد** — {_sent} {_lbl} ارسال شد")
+            st.balloons()
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("🗑 پاک کردن", key=f"clear_{key_suffix}",
                              use_container_width=True):
                     del st.session_state[state_key]
                     st.rerun()
+            with col_b:
+                st.metric("ارسال شده", f"{_sent}/{_total}")
 
-            elif state and state.get("cancel"):
-                st.error(f"🛑 متوقف شد — {state.get('sent', 0)} از {state.get('total', 0)}")
-                if st.button("🗑 پاک کردن وضعیت", key=f"clear2_{key_suffix}",
+        elif state and state.get("cancel"):
+            st.error(f"🛑 متوقف شد — {state.get('sent', 0)} از {state.get('total', 0)}")
+            if st.button("🗑 پاک کردن", key=f"clear2_{key_suffix}",
+                         use_container_width=True):
+                del st.session_state[state_key]
+                st.rerun()
+
+        elif state and state.get("error"):
+            st.error(f"❌ {state['error']}")
+            if st.button("🗑 پاک کردن", key=f"clear3_{key_suffix}",
+                         use_container_width=True):
+                del st.session_state[state_key]
+                st.rerun()
+
+        else:
+            # دکمه‌های اصلی
+            btn1, btn2 = st.columns(2)
+
+            with btn1:
+                if st.button("📄 ارسال PDF", type="secondary",
+                             key=f"pdf_send_{key_suffix}",
                              use_container_width=True):
-                    del st.session_state[state_key]
-                    st.rerun()
+                    try:
+                        from image_sender import df_to_pdf, send_pdf
+                        Path(".bale_docs").mkdir(exist_ok=True)
+                        pdf_path = f".bale_docs/report_{key_suffix}.pdf"
+                        title_pdf = f"{source_label}"
+                        df_to_pdf(sold_df, pdf_path, title=title_pdf, font_size=11)
+                        send_pdf(target_chat_id, pdf_path, caption=title_pdf)
+                        st.success(f"✅ PDF ارسال شد ({len(sold_df)} ردیف)")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"❌ {e}")
 
-            elif state and state.get("error"):
-                st.error(f"❌ {state['error']}")
-                if st.button("🗑 پاک کردن", key=f"clear3_{key_suffix}",
+            with btn2:
+                btn_label = "📤 ارسال جدا برای هر شعبه" if per_branch_mode else "📤 شروع ارسال"
+                if st.button(btn_label, type="primary",
+                             key=f"img_send_{key_suffix}",
                              use_container_width=True):
-                    del st.session_state[state_key]
-                    st.rerun()
-
-            else:
-                # ── PDF + شروع ارسال ──
-                col_pdf, col_img = st.columns(2)
-                with col_pdf:
-                    if st.button("📄 ارسال PDF", type="secondary",
-                                 key=f"pdf_send_{key_suffix}",
-                                 use_container_width=True):
-                        try:
-                            from image_sender import df_to_pdf, send_pdf
-                            Path(".bale_docs").mkdir(exist_ok=True)
-                            pdf_path = f".bale_docs/report_{key_suffix}.pdf"
-                            chunk = sold_df.iloc[
-                                (int(from_chunk)-1)*int(chunk_size):
-                                int(to_chunk)*int(chunk_size)
-                            ].copy()
-                            title_pdf = f"{source_label}"
-                            df_to_pdf(chunk, pdf_path, title=title_pdf, font_size=11)
-                            send_pdf(target_chat_id, pdf_path, caption=title_pdf)
-                            st.success(f"✅ PDF ارسال شد ({len(chunk)} ردیف)")
-                        except Exception as e:
-                            st.error(f"❌ {e}")
-
-                with col_img:
-                    if st.button("📤 شروع ارسال عکس‌ها", type="primary",
-                                 key=f"img_send_{key_suffix}",
-                                 use_container_width=True):
+                    if per_branch_mode:
+                        # ── حالت تدریجی: توی هر rerun یک عکس ──
+                        _branches = sold_df.groupby(_branch_col, sort=False).indices
+                        _branch_names = list(_branches.keys())
                         st.session_state[state_key] = {
                             "active": True,
                             "done": False,
                             "cancel": False,
                             "sent": 0,
-                            "total": n_to_send,
+                            "total": len(_branch_names),
                             "chunk_size": int(chunk_size),
                             "delay": int(delay),
-                            "from_chunk": int(from_chunk),
-                            "to_chunk": int(to_chunk),
+                            "per_branch_mode": True,
+                            "branch_names": _branch_names,
+                            "per_branch_msg": per_branch_msg,
+                            "source_label": source_label,
+                            "error": None,
+                        }
+                        st.rerun()
+                    else:
+                        n_total = (len(sold_df) + chunk_size - 1) // chunk_size
+                        st.session_state[state_key] = {
+                            "active": True,
+                            "done": False,
+                            "cancel": False,
+                            "sent": 0,
+                            "total": n_total,
+                            "chunk_size": int(chunk_size),
+                            "delay": int(delay),
+                            "from_chunk": 1,
                             "source_label": source_label,
                             "error": None,
                         }
