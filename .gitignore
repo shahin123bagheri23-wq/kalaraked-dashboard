@@ -1,39 +1,14 @@
-# فایل‌های حساس
-history.db
-backups/
-check.py
-~$*.xlsx
-*.tmp
-.streamlit/secrets.toml
-__pycache__/
-*.pyc
-.excel_cache/
-*.pkl
 config.ini
-contacts.json
-recipients.json
-
-# فایل‌های بک‌آپ
-*_backup*.xlsx
-projraked_backup_*.xlsx
-app_backup_*.py
-backup_before_*
-
-# اسکریپت‌های یک‌بارمصرف
-fix_*.py
-cleanup*.py
-check_*.py
-add_*.py
-rebuild_*.py
-replace_*.py
-apply_*.py
-
-# پوشه‌های موقت
+.streamlit/secrets.toml
+*.db
+backups/
+uploads/
 .bale_images/
 .bale_docs/
-static/
-
-# فایل‌های پرسنلی
-*گزارش عادی*
-*فرانچایز*
-personel*.xlsx
+.excel_cache/
+__pycache__/
+*.pyc
+.venv/
+~$*
+finalize.py
+clean_junk.py

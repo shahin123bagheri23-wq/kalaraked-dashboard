@@ -1,0 +1,28 @@
+{
+  "contacts": [
+    {
+      "name": "شاهین باقری فرد",
+      "email": "bagheri.shahin@okco.ir",
+      "type": "regular",
+      "bale_chat_id": 1343334968
+    },
+    {
+      "name": "علی ابراهیمی نیا",
+      "email": "ebrahiminia.ali@okco.ir",
+      "type": "manager",
+      "bale_chat_id": 81807690
+    },
+    {
+      "name": "علی ابراهیمی نیا",
+      "email": "ebrahiminia.ali@okco.ir",
+      "type": "supervisor",
+      "bale_chat_id": 1200192674
+    },
+    {
+      "name": "گروه",
+      "email": "",
+      "type": "regular",
+      "bale_chat_id": 5385420850
+    }
+  ]
+}
