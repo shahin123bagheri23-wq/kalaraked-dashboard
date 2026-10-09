@@ -439,6 +439,46 @@ def build_report():
 
 
 # ================== ارسال ایمیل ==================
+
+
+def _load_smtp_config():
+    """خوندن تنظیمات SMTP از secrets، env یا config.ini"""
+    import os
+    try:
+        import streamlit as st
+        try:
+            return {
+                "server": st.secrets["SMTP"]["server"],
+                "port": int(st.secrets["SMTP"]["port"]),
+                "sender_email": st.secrets["SMTP"]["sender_email"],
+                "sender_password": st.secrets["SMTP"]["sender_password"],
+            }
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # env
+    if os.environ.get("SMTP_SERVER"):
+        return {
+            "server": os.environ.get("SMTP_SERVER"),
+            "port": int(os.environ.get("SMTP_PORT", 465)),
+            "sender_email": os.environ.get("SMTP_EMAIL"),
+            "sender_password": os.environ.get("SMTP_PASSWORD"),
+        }
+
+    # config.ini
+    import configparser
+    cfg = configparser.ConfigParser()
+    cfg.read("config.ini", encoding="utf-8")
+    return {
+        "server": cfg.get("SMTP", "server", fallback="smtp.gmail.com"),
+        "port": cfg.getint("SMTP", "port", fallback=465),
+        "sender_email": cfg.get("SMTP", "sender_email", fallback=""),
+        "sender_password": cfg.get("SMTP", "sender_password", fallback=""),
+    }
+
+
 def send_email(html, subject=None, recipients=None):
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE, encoding="utf-8")
